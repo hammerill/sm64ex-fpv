@@ -10,6 +10,10 @@
 #include "segment2.h"
 #include "sm64.h"
 
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
+
 
 /**
  * @file skybox.c
@@ -278,6 +282,83 @@ Gfx *init_skybox_display_list(s8 player, s8 background, s8 colorIndex) {
     return skybox;
 }
 
+#ifdef FPV_DRONE
+#define SKYBOX_SPHERE_SUB 4
+#define SKYBOX_SPHERE_RADIUS 1000.0f
+
+/**
+ * The drone camera rolls and flips, which the scrolling backdrop cannot show.
+ * Instead, wrap the same 32x32 tiles around the camera as a sphere: each of the
+ * 8 unique tile columns spans 45 degrees of yaw (column c starts at -45 * (c - 1)
+ * degrees) and rows 1-6 span 30 degrees of pitch each, from +90 down to -90,
+ * which is how create_skybox_facing_camera scrolls them.
+ */
+static Gfx *create_skybox_sphere(s8 background, s8 colorIndex, Mat4 rot, f32 fov) {
+    const s32 sub = SKYBOX_SPHERE_SUB;
+    const s32 vtxPerTile = (sub + 1) * (sub + 1);
+    const s32 numTiles = 6 * 8;
+    Vtx *verts = alloc_display_list(numTiles * vtxPerTile * sizeof(*verts));
+    Gfx *dlist = alloc_display_list((16 + numTiles * (12 + sub * sub / 2)) * sizeof(Gfx));
+    Mtx *proj = alloc_display_list(sizeof(*proj));
+    Mtx *view = alloc_display_list(sizeof(*view));
+    Gfx *g = dlist;
+    u16 perspNorm;
+    u8 r = sSkyboxColors[colorIndex][0], gr = sSkyboxColors[colorIndex][1], b = sSkyboxColors[colorIndex][2];
+
+    if (verts == NULL || dlist == NULL || proj == NULL || view == NULL) {
+        return NULL;
+    }
+
+    guPerspective(proj, &perspNorm, fov, (f32) SCREEN_WIDTH / (f32) SCREEN_HEIGHT, 10.0f, 4000.0f, 1.0f);
+    mtxf_to_mtx(view, rot);
+
+    gSPDisplayList(g++, dl_skybox_begin);
+    gSPPerspNormalize(g++, perspNorm);
+    gSPMatrix(g++, VIRTUAL_TO_PHYSICAL(proj), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPDisplayList(g++, dl_skybox_tile_tex_settings);
+    gSPMatrix(g++, VIRTUAL_TO_PHYSICAL(view), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPClearGeometryMode(g++, G_CULL_BACK);
+
+    for (s32 row = 1; row <= 6; row++) {
+        for (s32 col = 0; col < 8; col++) {
+            // the top row is never on screen in the original and holds no usable sky:
+            // cap the zenith with the top texel line of the row below
+            s32 cap = row == 1;
+            s32 tileIndex = (cap ? 2 : row) * SKYBOX_COLS + col;
+            const u8 *const texture =
+                (*(SkyboxTexture *) segmented_to_virtual(sSkyboxTextures[background]))[tileIndex];
+            Vtx *v = verts;
+
+            for (s32 i = 0; i <= sub; i++) {
+                f32 elev = (4.0f - row - (f32) i / sub) * 30.0f * (3.14159265f / 180.0f);
+                for (s32 j = 0; j <= sub; j++) {
+                    f32 yaw = -45.0f * (col - 1 + (f32) j / sub) * (3.14159265f / 180.0f);
+                    f32 ce = cosf(elev);
+                    make_vertex(v, i * (sub + 1) + j, ce * sinf(yaw) * SKYBOX_SPHERE_RADIUS,
+                                sinf(elev) * SKYBOX_SPHERE_RADIUS, ce * cosf(yaw) * SKYBOX_SPHERE_RADIUS,
+                                (31 << 5) * j / sub, cap ? 0 : (31 << 5) * i / sub, r, gr, b, 255);
+                }
+            }
+            verts += vtxPerTile;
+
+            gLoadBlockTexture(g++, 32, 32, G_IM_FMT_RGBA, texture);
+            gSPVertex(g++, VIRTUAL_TO_PHYSICAL(v), vtxPerTile, 0);
+            for (s32 i = 0; i < sub; i++) {
+                for (s32 j = 0; j < sub; j++) {
+                    s32 a = i * (sub + 1) + j, c = a + sub + 1;
+                    gSP2Triangles(g++, a, c, c + 1, 0, a, c + 1, a + 1, 0);
+                }
+            }
+        }
+    }
+
+    gSPSetGeometryMode(g++, G_CULL_BACK);
+    gSPDisplayList(g++, dl_skybox_end);
+    gSPEndDisplayList(g);
+    return dlist;
+}
+#endif
+
 /**
  * Draw a skybox facing the direction from pos to foc.
  *
@@ -301,6 +382,16 @@ Gfx *create_skybox_facing_camera(s8 player, s8 background, f32 fov,
     if (background == 8 && !(save_file_get_star_flags(gCurrSaveFileNum - 1, COURSE_JRB - 1) & 1)) {
         colorIndex = 0;
     }
+
+#ifdef FPV_DRONE
+    {
+        Mat4 rot;
+        f32 viewFov;
+        if (fpv_sm64_view_rotation(rot, &viewFov)) {
+            return create_skybox_sphere(background, colorIndex, rot, viewFov);
+        }
+    }
+#endif
 
     //! fov is always set to 90.0f. If this line is removed, then the game crashes because fov is 0 on
     //! the first frame, which causes a floating point divide by 0

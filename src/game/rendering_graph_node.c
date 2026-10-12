@@ -8,6 +8,10 @@
 #include "memory.h"
 #include "print.h"
 #include "rendering_graph_node.h"
+
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
 #include "shadow.h"
 #include "sm64.h"
 
@@ -249,7 +253,12 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
         f32 aspect = (f32) gCurGraphNodeRoot->width / (f32) gCurGraphNodeRoot->height;
 #endif
 
-        guPerspective(mtx, &perspNorm, node->fov, aspect, node->near, node->far, 1.0f);
+        f32 fov = node->fov;
+        s16 near = node->near;
+#ifdef FPV_DRONE
+        fpv_sm64_view_frustum(&fov, &near);
+#endif
+        guPerspective(mtx, &perspNorm, fov, aspect, near, node->far, 1.0f);
         gSPPerspNormalize(gDisplayListHead++, perspNorm);
 
         gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
@@ -308,11 +317,18 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
     if (node->fnNode.func != NULL) {
         node->fnNode.func(GEO_CONTEXT_RENDER, &node->fnNode.node, gMatStack[gMatStackIndex]);
     }
+#ifdef FPV_DRONE
+    // the drone camera has a full orientation (rolls, flips): use its basis directly
+    s32 fpvView = fpv_sm64_view_matrix(cameraTransform, node->pos, node->focus);
+    if (fpvView) node->rollScreen = 0;
+#else
+    s32 fpvView = FALSE;
+#endif
     mtxf_rotate_xy(rollMtx, node->rollScreen);
 
     gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(rollMtx), G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH);
 
-    mtxf_lookat(cameraTransform, node->pos, node->focus, node->roll);
+    if (!fpvView) mtxf_lookat(cameraTransform, node->pos, node->focus, node->roll);
     mtxf_mul(gMatStack[gMatStackIndex + 1], cameraTransform, gMatStack[gMatStackIndex]);
     gMatStackIndex++;
     mtxf_to_mtx(mtx, gMatStack[gMatStackIndex]);

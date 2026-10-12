@@ -17,6 +17,13 @@
 #define STICK_XMASK 0x30000
 #define STICK_YMASK 0xc0000
 
+// fake buttons for the FPV drone actions, reported in OSContPad.ext_button
+#define FPV_BTN_SHIFT  20
+#define FPV_BTN_TOGGLE 0x100000
+#define FPV_BTN_RESET  0x200000
+#define FPV_BTN_CAMERA 0x400000
+#define FPV_BTN_MASK   0x700000
+
 #include <ultra64.h>
 
 struct ControllerAPI {

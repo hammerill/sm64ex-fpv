@@ -1,5 +1,9 @@
 #include <PR/ultratypes.h>
 
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
+
 #include "prevent_bss_reordering.h"
 
 #include "sm64.h"
@@ -637,6 +641,9 @@ void load_area_terrain(s16 index, s16 *data, s8 *surfaceRooms, s16 *macroObjects
 
     gNumStaticSurfaceNodes = gSurfaceNodesAllocated;
     gNumStaticSurfaces = gSurfacesAllocated;
+#ifdef FPV_DRONE
+    fpv_sm64_terrain_loaded();
+#endif
 }
 
 /**
@@ -766,6 +773,9 @@ void load_object_collision_model(void) {
     if (gCurrentObject->oDistanceToMario == 19000.0f) {
         marioDist = dist_between_objects(gCurrentObject, gMarioObject);
     }
+#ifdef FPV_DRONE
+    marioDist = fpv_sm64_cull_distance(gCurrentObject, marioDist);
+#endif
 
     // If the object collision is supposed to be loaded more than the
     // drawing distance of 4000, extend the drawing range.
@@ -783,6 +793,9 @@ void load_object_collision_model(void) {
         while (*collisionData != TERRAIN_LOAD_CONTINUE) {
             load_object_surfaces(&collisionData, vertexData);
         }
+#ifdef FPV_DRONE
+        fpv_sm64_object_collision_loaded(gCurrentObject, *gCurrentObject->header.gfx.throwMatrix);
+#endif
     }
 
 #ifndef NODRAWINGDISTANCE

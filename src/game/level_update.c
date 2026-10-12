@@ -1,6 +1,10 @@
 #include <ultra64.h>
 #include <stdbool.h>
 
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
+
 #include "sm64.h"
 #include "seq_ids.h"
 #include "dialog_ids.h"
@@ -986,6 +990,10 @@ s32 play_mode_normal(void) {
     if (gCurrentArea != NULL) {
         update_camera(gCurrentArea->camera);
     }
+
+#ifdef FPV_DRONE
+    fpv_sm64_update();
+#endif
 
     initiate_painting_warp();
     initiate_delayed_warp();

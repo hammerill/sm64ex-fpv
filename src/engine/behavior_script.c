@@ -1,5 +1,9 @@
 #include <ultra64.h>
 
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
+
 #include "sm64.h"
 #include "behavior_data.h"
 #include "behavior_script.h"
@@ -924,6 +928,9 @@ void cur_obj_update(void) {
     if (objFlags & OBJ_FLAG_COMPUTE_DIST_TO_MARIO) {
         gCurrentObject->oDistanceToMario = dist_between_objects(gCurrentObject, gMarioObject);
         distanceFromMario = gCurrentObject->oDistanceToMario;
+#ifdef FPV_DRONE
+        distanceFromMario = fpv_sm64_cull_distance(gCurrentObject, distanceFromMario);
+#endif
     } else {
         distanceFromMario = 0.0f;
     }

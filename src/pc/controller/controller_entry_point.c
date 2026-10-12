@@ -8,6 +8,10 @@
 #include "controller_keyboard.h"
 #include "controller_sdl.h"
 
+#ifdef FPV_DRONE
+#include "../fpv/fpv_sm64.h"
+#endif
+
 // Analog camera movement by Pathétique (github.com/vrmiguel), y0shin and Mors
 // Contribute or communicate bugs at github.com/vrmiguel/sm64-analog-camera
 
@@ -54,11 +58,16 @@ void osContGetReadData(OSContPad *pad) {
     pad->stick_y = 0;
     pad->ext_stick_x = 0;
     pad->ext_stick_y = 0;
+    pad->ext_button = 0;
     pad->errnum = 0;
 
     for (size_t i = 0; i < sizeof(controller_implementations) / sizeof(struct ControllerAPI *); i++) {
         controller_implementations[i]->read(pad);
     }
+
+#ifdef FPV_DRONE
+    fpv_sm64_filter_pad(pad);
+#endif
 }
 
 u32 controller_get_raw_key(void) {

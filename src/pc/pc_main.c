@@ -35,6 +35,10 @@
 #include "game/main.h"
 #include "game/thread6.h"
 
+#ifdef FPV_DRONE
+#include "fpv/fpv_sm64.h"
+#endif
+
 #ifdef DISCORDRPC
 #include "pc/discord/discordrpc.h"
 #endif
@@ -105,6 +109,9 @@ void produce_one_frame(void) {
         u32 num_audio_samples = audio_cnt < 2 ? 528 : 544;*/
         create_next_audio_buffer(audio_buffer + i * (num_audio_samples * 2), num_audio_samples);
     }
+#ifdef FPV_DRONE
+    fpv_sm64_mix_audio(audio_buffer, 2 * num_audio_samples);
+#endif
     //printf("Audio samples before submitting: %d\n", audio_api->buffered());
 
     audio_api->play((u8 *)audio_buffer, 2 * num_audio_samples * 4);
@@ -125,6 +132,9 @@ void game_deinit(void) {
 #endif
     configfile_save(configfile_name());
     controller_shutdown();
+#ifdef FPV_DRONE
+    fpv_sm64_shutdown();
+#endif
     audio_shutdown();
     gfx_shutdown();
     inited = false;
@@ -223,6 +233,10 @@ void main_func(void) {
 
     gfx_init(wm_api, rendering_api, window_title);
     wm_api->set_keyboard_callbacks(keyboard_on_key_down, keyboard_on_key_up, keyboard_on_all_keys_up);
+
+#ifdef FPV_DRONE
+    fpv_sm64_init();
+#endif
 
     #if defined(AAPI_SDL1) || defined(AAPI_SDL2)
     if (audio_api == NULL && audio_sdl.init()) 

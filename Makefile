@@ -51,6 +51,9 @@ TEXTSAVES ?= 0
 EXTERNAL_DATA ?= 0
 # Enable Discord Rich Presence
 DISCORDRPC ?= 0
+# Enable the FPV drone (links libfpv from a libfpv checkout and its build folder)
+FPV_DRONE ?= 0
+LIBFPV_DIR ?= ../libfpv
 
 # Various workarounds for weird toolchains
 
@@ -314,6 +317,10 @@ LEVEL_DIRS := $(patsubst levels/%,%,$(dir $(wildcard levels/*/header.h)))
 
 # Hi, I'm a PC
 SRC_DIRS := src src/engine src/game src/audio src/menu src/buffers actors levels bin data assets src/pc src/pc/gfx src/pc/audio src/pc/controller src/pc/fs src/pc/fs/packtypes
+
+ifeq ($(FPV_DRONE),1)
+  SRC_DIRS += src/pc/fpv
+endif
 ASM_DIRS :=
 
 ifeq ($(DISCORDRPC),1)
@@ -611,6 +618,12 @@ ifeq ($(DISCORDRPC),1)
   CFLAGS += -DDISCORDRPC
 endif
 
+# Check for FPV drone option
+ifeq ($(FPV_DRONE),1)
+  CC_CHECK += -DFPV_DRONE -I$(LIBFPV_DIR)/include
+  CFLAGS += -DFPV_DRONE -I$(LIBFPV_DIR)/include
+endif
+
 # Check for texture fix option
 ifeq ($(TEXTURE_FIX),1)
   CC_CHECK += -DTEXTURE_FIX
@@ -684,6 +697,20 @@ else
   endif
 
 endif # End of LDFLAGS
+
+FPV_LIBS :=
+ifeq ($(FPV_DRONE),1)
+  ifeq ($(WINDOWS_BUILD),1)
+    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/win
+    # full path: -static would skip libfpv.dll.a when searching -lfpv
+    LDFLAGS += $(LIBFPV_BUILD)/libfpv.dll.a
+    FPV_LIBS := $(BUILD_DIR)/libfpv.dll
+  else
+    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/linux
+    LDFLAGS += -L$(LIBFPV_BUILD) -lfpv -Wl,-rpath,'$$ORIGIN'
+    FPV_LIBS := $(BUILD_DIR)/libfpv.so.0
+  endif
+endif
 
 # Prevent a crash with -sopt
 export LANG := C
@@ -773,6 +800,13 @@ ifneq ($(RPC_LIBS),)
 
 $(BUILD_DIR)/$(RPC_LIBS):
 	@$(CP) -f $(RPC_LIBS) $(BUILD_DIR)
+
+endif
+
+ifneq ($(FPV_LIBS),)
+
+$(FPV_LIBS): $(LIBFPV_BUILD)/$(notdir $(FPV_LIBS))
+	@$(CP) -fL $< $@
 
 endif
 
@@ -1030,7 +1064,7 @@ $(BUILD_DIR)/%.o: %.s
 
 
 
-$(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(if $(RPC_LIBS),$(BUILD_DIR)/$(RPC_LIBS),)
+$(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(if $(RPC_LIBS),$(BUILD_DIR)/$(RPC_LIBS),) $(FPV_LIBS)
 	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
 
 .PHONY: all clean distclean default diff test load libultra res

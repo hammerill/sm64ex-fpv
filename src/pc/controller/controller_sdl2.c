@@ -86,6 +86,9 @@ static void controller_sdl_bind(void) {
     controller_add_binds(L_TRIG,       configKeyL);
     controller_add_binds(R_TRIG,       configKeyR);
     controller_add_binds(START_BUTTON, configKeyStart);
+    controller_add_binds(FPV_BTN_TOGGLE, configKeyFpvToggle);
+    controller_add_binds(FPV_BTN_RESET,  configKeyFpvReset);
+    controller_add_binds(FPV_BTN_CAMERA, configKeyFpvCamera);
 }
 
 static void controller_sdl_init(void) {
@@ -229,6 +232,7 @@ static void controller_sdl_read(OSContPad *pad) {
             buttons_down |= joy_binds[i][1];
 
     pad->button |= buttons_down;
+    pad->ext_button |= (buttons_down & FPV_BTN_MASK) >> FPV_BTN_SHIFT;
 
     const u32 xstick = buttons_down & STICK_XMASK;
     const u32 ystick = buttons_down & STICK_YMASK;

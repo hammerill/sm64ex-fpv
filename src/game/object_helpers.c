@@ -1,5 +1,9 @@
 #include <PR/ultratypes.h>
 
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
+
 #include "sm64.h"
 #include "area.h"
 #include "behavior_actions.h"
@@ -181,9 +185,13 @@ Gfx *geo_switch_area(s32 callContext, struct GraphNode *node) {
         if (gMarioObject == NULL) {
             switchCase->selectedCase = 0;
         } else {
+            Vec3f roomPos = { gMarioObject->oPosX, gMarioObject->oPosY, gMarioObject->oPosZ };
+#ifdef FPV_DRONE
+            fpv_sm64_room_position(roomPos); // rooms follow the drone while flying
+#endif
             gFindFloorIncludeSurfaceIntangible = TRUE;
 
-            find_floor(gMarioObject->oPosX, gMarioObject->oPosY, gMarioObject->oPosZ, &sp20);
+            find_floor(roomPos[0], roomPos[1], roomPos[2], &sp20);
 
             if (sp20) {
                 gMarioCurrentRoom = sp20->room;

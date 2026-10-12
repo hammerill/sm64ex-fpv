@@ -70,6 +70,10 @@ unsigned int configKeyStickUp[MAX_BINDS]    = { 0x0011,   VK_INVALID, VK_INVALID
 unsigned int configKeyStickDown[MAX_BINDS]  = { 0x001F,   VK_INVALID, VK_INVALID };
 unsigned int configKeyStickLeft[MAX_BINDS]  = { 0x001E,   VK_INVALID, VK_INVALID };
 unsigned int configKeyStickRight[MAX_BINDS] = { 0x0020,   VK_INVALID, VK_INVALID };
+// FPV drone: F / Back, R / D-pad up, V / D-pad right
+unsigned int configKeyFpvToggle[MAX_BINDS]  = { 0x0021,   0x1004,     VK_INVALID };
+unsigned int configKeyFpvReset[MAX_BINDS]   = { 0x0013,   0x100B,     VK_INVALID };
+unsigned int configKeyFpvCamera[MAX_BINDS]  = { 0x002F,   0x100E,     VK_INVALID };
 unsigned int configStickDeadzone = 16; // 16*DEADZONE_STEP=4960 (the original default deadzone)
 unsigned int configRumbleStrength = 50;
 #ifdef EXTERNAL_DATA
@@ -120,6 +124,9 @@ static const struct ConfigOption options[] = {
     {.name = "key_stickdown",        .type = CONFIG_TYPE_BIND, .uintValue = configKeyStickDown},
     {.name = "key_stickleft",        .type = CONFIG_TYPE_BIND, .uintValue = configKeyStickLeft},
     {.name = "key_stickright",       .type = CONFIG_TYPE_BIND, .uintValue = configKeyStickRight},
+    {.name = "key_fpv_toggle",       .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvToggle},
+    {.name = "key_fpv_reset",        .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvReset},
+    {.name = "key_fpv_camera",       .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvCamera},
     {.name = "stick_deadzone",       .type = CONFIG_TYPE_UINT, .uintValue = &configStickDeadzone},
     {.name = "rumble_strength",      .type = CONFIG_TYPE_UINT, .uintValue = &configRumbleStrength},
     #ifdef EXTERNAL_DATA

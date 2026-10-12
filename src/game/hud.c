@@ -1,6 +1,10 @@
 #include <stdbool.h>
 #include <PR/ultratypes.h>
 
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
+
 #include "sm64.h"
 #include "actors/common1.h"
 #include "gfx_dimensions.h"
@@ -449,6 +453,13 @@ void render_hud(void) {
         create_dl_ortho_matrix();
 #endif
 
+#ifdef FPV_DRONE
+        // the Betaflight OSD owns the corners in the FPV view; keep coins, health and timer
+        if (fpv_sm64_osd_visible()) {
+            hudDisplayFlags &= ~(HUD_DISPLAY_FLAG_LIVES | HUD_DISPLAY_FLAG_STAR_COUNT);
+        }
+#endif
+
         if (gCurrentArea != NULL && gCurrentArea->camera->mode == CAMERA_MODE_INSIDE_CANNON) {
             render_hud_cannon_reticle();
         }
@@ -471,6 +482,9 @@ void render_hud(void) {
 
         if (hudDisplayFlags & HUD_DISPLAY_FLAG_CAMERA_AND_POWER && configHUD) {
             render_hud_power_meter();
+#ifdef FPV_DRONE
+            if (!fpv_sm64_osd_visible())
+#endif
             render_hud_camera_status();
         }
 

@@ -1,5 +1,9 @@
 #include <PR/ultratypes.h>
 
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
+
 #include "prevent_bss_reordering.h"
 #include "area.h"
 #include "sm64.h"
@@ -371,6 +375,12 @@ void play_transition_after_delay(s16 transType, s16 time, u8 red, u8 green, u8 b
 void render_game(void) {
     if (gCurrentArea != NULL && !gWarpTransition.pauseRendering) {
         geo_process_root(gCurrentArea->unk04, D_8032CE74, D_8032CE78, gFBSetColor);
+#ifdef FPV_DRONE
+        // lens post-process point: after the 3D scene, before the HUD
+        gDisplayListHead->words.w0 = (uintptr_t) G_NOOP << 24;
+        gDisplayListHead->words.w1 = FPV_GFX_SCENE_DONE_TAG;
+        gDisplayListHead++;
+#endif
 
         gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(&D_8032CF00));
 

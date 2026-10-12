@@ -36,6 +36,51 @@
 
 #include "src/pc/controller/controller_keyboard.h"
 
+#ifdef FPV_DRONE
+#include <libfpv.h>
+#include "src/pc/fpv/fpv_sm64.h"
+
+// SDL keys to libfpv key codes (letters/digits as uppercase ASCII)
+static int fpv_key_from_sdl(SDL_Keycode k) {
+    if (k >= SDLK_a && k <= SDLK_z) return 'A' + (int)(k - SDLK_a);
+    if (k >= SDLK_0 && k <= SDLK_9) return '0' + (int)(k - SDLK_0);
+    if (k >= SDLK_F1 && k <= SDLK_F12) return FPV_KEY_F1 + (int)(k - SDLK_F1);
+    switch (k) {
+        case SDLK_TAB: return FPV_KEY_TAB;
+        case SDLK_RETURN: case SDLK_KP_ENTER: return FPV_KEY_ENTER;
+        case SDLK_ESCAPE: return FPV_KEY_ESCAPE;
+        case SDLK_SPACE: return FPV_KEY_SPACE;
+        case SDLK_LEFT: return FPV_KEY_LEFT;
+        case SDLK_RIGHT: return FPV_KEY_RIGHT;
+        case SDLK_UP: return FPV_KEY_UP;
+        case SDLK_DOWN: return FPV_KEY_DOWN;
+        case SDLK_PAGEUP: return FPV_KEY_PAGE_UP;
+        case SDLK_PAGEDOWN: return FPV_KEY_PAGE_DOWN;
+        case SDLK_HOME: return FPV_KEY_HOME;
+        case SDLK_END: return FPV_KEY_END;
+        case SDLK_INSERT: return FPV_KEY_INSERT;
+        case SDLK_DELETE: return FPV_KEY_DELETE;
+        case SDLK_BACKSPACE: return FPV_KEY_BACKSPACE;
+        case SDLK_LSHIFT: return FPV_KEY_LSHIFT;
+        case SDLK_RSHIFT: return FPV_KEY_RSHIFT;
+        case SDLK_LCTRL: return FPV_KEY_LCTRL;
+        case SDLK_RCTRL: return FPV_KEY_RCTRL;
+        case SDLK_LALT: return FPV_KEY_LALT;
+        case SDLK_RALT: return FPV_KEY_RALT;
+        default: return FPV_KEY_NONE;
+    }
+}
+
+static void fpv_handle_key_event(const SDL_KeyboardEvent *key) {
+    if (key->repeat) return;
+    const bool down = key->type == SDL_KEYDOWN;
+    // Alt+Enter toggles fullscreen and must not reach the drone (Enter arms)
+    if (down && (key->keysym.sym == SDLK_RETURN || key->keysym.sym == SDLK_KP_ENTER) && (key->keysym.mod & KMOD_ALT))
+        return;
+    fpv_sm64_key(fpv_key_from_sdl(key->keysym.sym), down);
+}
+#endif
+
 // TODO: figure out if this shit even works
 #ifdef VERSION_EU
 # define FRAMERATE 25
@@ -241,10 +286,32 @@ static void gfx_sdl_handle_events(void) {
 #ifndef TARGET_WEB
             // Scancodes are broken in Emscripten SDL2: https://bugzilla.libsdl.org/show_bug.cgi?id=3259
             case SDL_KEYDOWN:
+#ifdef FPV_DRONE
+                fpv_handle_key_event(&event.key);
+#endif
                 gfx_sdl_onkeydown(event.key.keysym.scancode);
                 break;
             case SDL_KEYUP:
+#ifdef FPV_DRONE
+                fpv_handle_key_event(&event.key);
+#endif
                 gfx_sdl_onkeyup(event.key.keysym.scancode);
+                break;
+#endif
+#ifdef FPV_DRONE
+            case SDL_TEXTINPUT:
+                fpv_sm64_text(event.text.text);
+                break;
+            case SDL_MOUSEMOTION:
+                fpv_sm64_mouse_move(event.motion.x, event.motion.y);
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+            case SDL_MOUSEBUTTONUP:
+                fpv_sm64_mouse_button(event.button.button == SDL_BUTTON_LEFT ? 0 : event.button.button == SDL_BUTTON_RIGHT ? 1 : 2,
+                                      event.type == SDL_MOUSEBUTTONDOWN);
+                break;
+            case SDL_MOUSEWHEEL:
+                fpv_sm64_mouse_wheel(event.wheel.x, event.wheel.y);
                 break;
 #endif
             case SDL_WINDOWEVENT: // TODO: Check if this makes sense to be included in the Web build

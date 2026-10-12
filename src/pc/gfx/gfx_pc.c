@@ -28,6 +28,10 @@
 #include "../configfile.h"
 #include "../fs/fs.h"
 
+#ifdef FPV_DRONE
+#include "../fpv/fpv_sm64.h"
+#endif
+
 #define SUPPORT_CHECK(x) assert(x)
 
 // SCALE_M_N: upscale/downscale M-bit integer to N-bit
@@ -166,6 +170,10 @@ static struct RenderingState {
 } rendering_state;
 
 struct GfxDimensions gfx_current_dimensions;
+
+#ifdef FPV_DRONE
+static bool fpv_drone_view; // a drone camera is rendering this frame
+#endif
 
 static bool dropped_frame;
 
@@ -849,6 +857,10 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
             float fog_z = z * winv * rsp.fog_mul + rsp.fog_offset;
             if (fog_z < 0) fog_z = 0;
             if (fog_z > 255) fog_z = 255;
+#ifdef FPV_DRONE
+            // no distance fog through the drone cameras
+            if (fpv_drone_view) fog_z = 0;
+#endif
             d->color.a = fog_z; // Use alpha variable to store fog factor
         } else {
             d->color.a = v->cn[3];
@@ -1503,6 +1515,19 @@ static inline void *seg_addr(uintptr_t w1) {
 #define C0(pos, width) ((cmd->words.w0 >> (pos)) & ((1U << width) - 1))
 #define C1(pos, width) ((cmd->words.w1 >> (pos)) & ((1U << width) - 1))
 
+#ifdef FPV_DRONE
+// Draws FPV drone layers (lens post-process, OSD, overlay) with raw GL calls, then
+// forgets the cached shader so the next flush re-specifies its vertex attributes.
+static void gfx_fpv_hook(void (*draw)(int width, int height)) {
+    gfx_flush();
+    draw((int) gfx_current_dimensions.width, (int) gfx_current_dimensions.height);
+    if (rendering_state.shader_program != NULL) {
+        gfx_rapi->unload_shader(rendering_state.shader_program);
+        rendering_state.shader_program = NULL;
+    }
+}
+#endif
+
 static void gfx_run_dl(Gfx* cmd) {
     int dummy = 0;
     for (;;) {
@@ -1704,6 +1729,12 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_SETCIMG:
                 gfx_dp_set_color_image(C0(21, 3), C0(19, 2), C0(0, 11), seg_addr(cmd->words.w1));
                 break;
+#ifdef FPV_DRONE
+            case G_NOOP:
+                if (cmd->words.w1 == FPV_GFX_SCENE_DONE_TAG)
+                    gfx_fpv_hook(fpv_sm64_gfx_scene_done);
+                break;
+#endif
         }
         ++cmd;
     }
@@ -1793,8 +1824,14 @@ void gfx_run(Gfx *commands) {
     
     double t0 = gfx_wapi->get_time();
     gfx_rapi->start_frame();
+#ifdef FPV_DRONE
+    fpv_drone_view = fpv_sm64_camera_active();
+#endif
     gfx_run_dl(commands);
     gfx_flush();
+#ifdef FPV_DRONE
+    gfx_fpv_hook(fpv_sm64_gfx_frame_done);
+#endif
     double t1 = gfx_wapi->get_time();
     //printf("Process %f %f\n", t1, t1 - t0);
     gfx_rapi->end_frame();

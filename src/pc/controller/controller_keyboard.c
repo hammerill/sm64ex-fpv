@@ -75,6 +75,9 @@ static void keyboard_bindkeys(void) {
     keyboard_add_binds(L_TRIG,       configKeyL);
     keyboard_add_binds(R_TRIG,       configKeyR);
     keyboard_add_binds(START_BUTTON, configKeyStart);
+    keyboard_add_binds(FPV_BTN_TOGGLE, configKeyFpvToggle);
+    keyboard_add_binds(FPV_BTN_RESET,  configKeyFpvReset);
+    keyboard_add_binds(FPV_BTN_CAMERA, configKeyFpvCamera);
 }
 
 static void keyboard_init(void) {
@@ -87,6 +90,7 @@ static void keyboard_init(void) {
 
 static void keyboard_read(OSContPad *pad) {
     pad->button |= keyboard_buttons_down;
+    pad->ext_button |= (keyboard_buttons_down & FPV_BTN_MASK) >> FPV_BTN_SHIFT;
     const u32 xstick = keyboard_buttons_down & STICK_XMASK;
     const u32 ystick = keyboard_buttons_down & STICK_YMASK;
     if (xstick == STICK_LEFT)
