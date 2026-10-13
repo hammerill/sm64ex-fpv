@@ -17,6 +17,16 @@
 #include "sound_init.h"
 #include "surface_terrains.h"
 #include "thread6.h"
+#include "pc/fpv/fpv_sm64.h"
+
+// Mario stays awake while piloting the FPV drone.
+static s32 fpv_pilot_awake(void) {
+#ifdef FPV_DRONE
+    return fpv_sm64_is_active();
+#else
+    return FALSE;
+#endif
+}
 
 s32 check_common_idle_cancels(struct MarioState *m) {
     mario_drop_held_object(m);
@@ -120,6 +130,10 @@ s32 act_idle(struct MarioState *m) {
         return 1;
     }
 
+    if (m->actionState == 3 && fpv_pilot_awake()) {
+        m->actionState = 0;
+    }
+
     if (m->actionState == 3) {
         if ((m->area->terrainType & TERRAIN_MASK) == TERRAIN_SNOW) {
             return set_mario_action(m, ACT_SHIVERING, 0);
@@ -190,6 +204,10 @@ s32 act_start_sleeping(struct MarioState *m) {
 
     if (m->quicksandDepth > 30.0f) {
         return set_mario_action(m, ACT_IN_QUICKSAND, 0);
+    }
+
+    if (fpv_pilot_awake()) {
+        return set_mario_action(m, ACT_IDLE, 0);
     }
 
     if (m->actionState == 4) {
@@ -264,7 +282,7 @@ s32 act_start_sleeping(struct MarioState *m) {
 
 s32 act_sleeping(struct MarioState *m) {
     s32 sp24;
-    if (m->input & INPUT_UNKNOWN_A41F /* ? */) {
+    if ((m->input & INPUT_UNKNOWN_A41F /* ? */) || fpv_pilot_awake()) {
         return set_mario_action(m, ACT_WAKING_UP, m->actionState);
     }
 
