@@ -51,6 +51,10 @@ make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- CC=x86_64-w64-mingw32-gcc \
 
 macOS builds natively with Apple Clang and the system OpenGL framework (tested on Apple Silicon). You need the Xcode command line tools, Python 3 and SDL2 from [Homebrew](https://brew.sh) (`brew install sdl2`); GCC, GLEW and MinGW binutils are not needed. Build libfpv into its `build/mac` folder (`cmake -S . -B build/mac && cmake --build build/mac -j`). The stock `/usr/bin/make` works.
 
+### macOS app
+
+`make FPV_DRONE=1 app` wraps the build in a double-clickable `build/us_pc/SM64EX FPV.app`. It bundles libfpv and the Homebrew SDL2 under `Contents/Frameworks`, so neither has to be installed to run it. For an icon, put any image `sips` can read (`.ico`, `.png`...) at `mac/AppIcon.<ext>` (git ignores it) or pass `APP_ICON=<path>`. The app name and version can be changed with `APP_NAME` and `APP_VERSION`. The bundle is ad-hoc signed and not notarised. It is built for the host architecture and the macOS version of the build machine. On another Mac, Gatekeeper blocks it until you right-click > Open it (or run `xattr -dr com.apple.quarantine` on it). It contains the game's assets, so don't share it.
+
 `libfpv.dll` (or `libfpv.so.0`, or `libfpv.0.dylib` on macOS) is copied next to the executable and must ship with it. Only the OpenGL renderer draws the lens effect, the OSD and the overlay.
 
 For everything else about building (dependencies, ROM placement, other platforms), the [sm64ex wiki](https://github.com/sm64pc/sm64ex/wiki) applies. Without `FPV_DRONE=1` the build is plain sm64ex.

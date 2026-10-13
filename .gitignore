@@ -82,3 +82,6 @@ sm64config.txt
 
 # macOS bullcrap directory settings file thats autocreated
 .DS_Store
+
+# macOS app icon (your own artwork, not committed)
+/mac/AppIcon.*

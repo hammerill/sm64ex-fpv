@@ -1070,7 +1070,18 @@ $(BUILD_DIR)/%.o: %.s
 $(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(if $(RPC_LIBS),$(BUILD_DIR)/$(RPC_LIBS),) $(FPV_LIBS)
 	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
 
-.PHONY: all clean distclean default diff test load libultra res
+# macOS .app bundle: make app (pass the same options as the build, e.g. FPV_DRONE=1)
+ifeq ($(OSX_BUILD),1)
+APP_NAME ?= SM64EX FPV
+APP_ICON ?= $(wildcard mac/AppIcon.*)
+APP_VERSION ?= 1.0
+APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
+
+app: $(EXE)
+	@sh mac/bundle_app.sh "$(EXE)" "$(APP_BUNDLE)" "$(APP_NAME)" "$(APP_VERSION)" "$(firstword $(APP_ICON))"
+endif
+
+.PHONY: all clean distclean default diff test load libultra res app
 .PRECIOUS: $(BUILD_DIR)/bin/%.elf $(SOUND_BIN_DIR)/%.ctl $(SOUND_BIN_DIR)/%.tbl $(SOUND_SAMPLE_TABLES) $(SOUND_BIN_DIR)/%.s $(BUILD_DIR)/%
 .DELETE_ON_ERROR:
 
