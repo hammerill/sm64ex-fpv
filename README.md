@@ -1,4 +1,7 @@
 # sm64ex-fpv
+
+![SM64 FPV](sm64-fpv.gif)
+
 Fork of [sm64pc/sm64ex](https://github.com/sm64pc/sm64ex) that lets Mario deploy an FPV quadcopter and fly it around the level.
 
 The drone runs real Betaflight firmware through [libfpv](https://github.com/hammerill/libfpv), so rates, angle mode, arming and crashes behave like a real 5" quad. Mario stays put as the pilot while you fly with a keyboard, a gamepad or a real radio in USB joystick mode.
