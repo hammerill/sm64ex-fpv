@@ -53,15 +53,18 @@ EEPROMs and logs are kept in the game's user folder
 
 Build libfpv first (see its README), then build sm64ex with `FPV_DRONE=1`.
 `LIBFPV_DIR` defaults to `../libfpv`. `LIBFPV_BUILD` defaults to its `build/win`
-folder for Windows builds and `build/linux` otherwise.
+folder for Windows builds, `build/mac` on macOS and `build/linux` otherwise.
 
 ```sh
+# Linux or macOS
+make FPV_DRONE=1
+
 # Windows, cross-compiled from Linux with MinGW-w64
 make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- CC=x86_64-w64-mingw32-gcc \
      CXX=x86_64-w64-mingw32-g++ TARGET_BITS=64 FPV_DRONE=1
 ```
 
-`libfpv.dll` (or `libfpv.so.0`) is copied next to the executable, and the
+`libfpv.dll` (or `libfpv.so.0`, or `libfpv.0.dylib`) is copied next to the executable, and the
 game needs it at run time. Only the OpenGL renderer draws the lens effect, the
 OSD and the overlay.
 

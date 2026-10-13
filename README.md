@@ -38,12 +38,17 @@ Build [libfpv](https://github.com/hammerill/libfpv) first (see its README), then
 # Linux
 make FPV_DRONE=1
 
+# macOS
+make FPV_DRONE=1
+
 # Windows, cross-compiled from Linux with MinGW-w64
 make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- CC=x86_64-w64-mingw32-gcc \
      CXX=x86_64-w64-mingw32-g++ TARGET_BITS=64 FPV_DRONE=1
 ```
 
-`libfpv.dll` (or `libfpv.so.0`) is copied next to the executable and must ship with it. Only the OpenGL renderer draws the lens effect, the OSD and the overlay.
+macOS builds natively with Apple Clang and the system OpenGL framework (tested on Apple Silicon). You need the Xcode command line tools, Python 3 and SDL2 from [Homebrew](https://brew.sh) (`brew install sdl2`); GCC, GLEW and MinGW binutils are not needed. Build libfpv into its `build/mac` folder (`cmake -S . -B build/mac && cmake --build build/mac -j`). The stock `/usr/bin/make` works.
+
+`libfpv.dll` (or `libfpv.so.0`, or `libfpv.0.dylib` on macOS) is copied next to the executable and must ship with it. Only the OpenGL renderer draws the lens effect, the OSD and the overlay.
 
 For everything else about building (dependencies, ROM placement, other platforms), the [sm64ex wiki](https://github.com/sm64pc/sm64ex/wiki) applies. Without `FPV_DRONE=1` the build is plain sm64ex.
 
@@ -59,7 +64,7 @@ For everything else about building (dependencies, ROM placement, other platforms
  * Cheats menu in Options (activate with `--cheats` or by pressing L thrice in the pause menu).
  * Support for both little-endian and big-endian save files (meaning you can use save files from both sm64-port and most emulators), as well as an optional text-based save format.
 
-Saves and configuration live in `%APPDATA%\sm64ex` on Windows and `$HOME/.local/share/sm64ex` on Linux, along with the drone's `libfpv-data` folder and `fpv.log`. The save location can be changed with the `--savepath` CLI option:
+Saves and configuration live in `%APPDATA%\sm64ex` on Windows, `$HOME/.local/share/sm64ex` on Linux and `~/Library/Application Support/sm64ex` on macOS, along with the drone's `libfpv-data` folder and `fpv.log`. The save location can be changed with the `--savepath` CLI option:
 `--savepath .` reads saves from the current directory, and `--savepath '!'` reads them from the executable directory.
 
 The translated READMEs ([Español](README_es_ES.md), [Português](README_pt_BR.md), [简体中文](README_zh_CN.md), [Bahasa Melayu](README_ms_MY.md)) describe upstream sm64ex and don't cover the drone.

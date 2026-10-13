@@ -11,7 +11,7 @@
 # define FOR_WINDOWS 0
 #endif
 
-#if FOR_WINDOWS || defined(OSX_BUILD)
+#if FOR_WINDOWS
 # define GLEW_STATIC
 # include <GL/glew.h>
 #endif

@@ -115,21 +115,16 @@ endif
 # macOS overrides
 ifeq ($(HOST_OS),Darwin)
   OSX_BUILD := 1
+  # Apple Clang from the Xcode command line tools
+  CC := clang
+  CXX := clang++
+  CPP := clang -E -P -x c
   # Using Homebrew?
   ifeq ($(shell which brew >/dev/null 2>&1 && echo y),y)
-	PLATFORM := $(shell uname -m)
-	OSX_GCC_VER = $(shell find `brew --prefix`/bin/gcc* | grep -oE '[[:digit:]]+' | sort -n | uniq | tail -1)
-	CC := gcc-$(OSX_GCC_VER)
-	CXX := g++-$(OSX_GCC_VER)
-	CPP := cpp-$(OSX_GCC_VER) -P
 	PLATFORM_CFLAGS := -I $(shell brew --prefix)/include
 	PLATFORM_LDFLAGS := -L $(shell brew --prefix)/lib
   # Using MacPorts?
   else ifeq ($(shell test -d /opt/local/lib && echo y),y)
-	OSX_GCC_VER = $(shell find /opt/local/bin/gcc* | grep -oE '[[:digit:]]+' | sort -n | uniq | tail -1)
-	CC := gcc-mp-$(OSX_GCC_VER)
-	CXX := g++-mp-$(OSX_GCC_VER)
-	CPP := cpp-mp-$(OSX_GCC_VER) -P
 	PLATFORM_CFLAGS := -I /opt/local/include
 	PLATFORM_LDFLAGS := -L /opt/local/lib
   else
@@ -222,7 +217,7 @@ ifeq ($(TARGET_RPI),1) # Define RPi to change SDL2 title & GLES2 hints
 endif
 
 ifeq ($(OSX_BUILD),1) # Modify GFX & SDL2 for OSX GL
-     VERSION_CFLAGS += -DOSX_BUILD
+     VERSION_CFLAGS += -DOSX_BUILD -DGL_SILENCE_DEPRECATION
 endif
 
 VERSION_ASFLAGS := --defsym AVOID_UB=1
@@ -261,14 +256,14 @@ ifneq ($(MAKECMDGOALS),distclean)
 # Make sure assets exist
 NOEXTRACT ?= 0
 ifeq ($(NOEXTRACT),0)
-DUMMY != ./extract_assets.py $(VERSION) >&2 || echo FAIL
+DUMMY := $(shell ./extract_assets.py $(VERSION) >&2 || echo FAIL)
 ifeq ($(DUMMY),FAIL)
   $(error Failed to extract assets)
 endif
 endif
 
 # Make tools if out of date
-DUMMY != CC=$(CC) CXX=$(CXX) $(MAKE) -C tools -j1 >&2 || echo FAIL
+DUMMY := $(shell CC=$(CC) CXX=$(CXX) $(MAKE) -C tools -j1 >&2 || echo FAIL)
 ifeq ($(DUMMY),FAIL)
   $(error Failed to build tools)
 endif
@@ -470,7 +465,9 @@ ENDIAN_BITWIDTH := $(BUILD_DIR)/endian-and-bitwidth
 AS := $(CROSS)as
 
 ifeq ($(OSX_BUILD),1)
-AS := i686-w64-mingw32-as
+# no GNU binutils on macOS: clang assembles the sequences to ELF and
+# tools/elf_objcopy.py extracts their .rodata
+AS := clang --target=x86_64-linux-gnu -c -x assembler
 endif
 
 ifneq ($(TARGET_WEB),1) # As in, not-web PC port
@@ -500,8 +497,8 @@ ifeq ($(WINDOWS_BUILD),1) # fixes compilation in MXE on Linux and WSL
   OBJCOPY := objcopy
   OBJDUMP := $(CROSS)objdump
 else ifeq ($(OSX_BUILD),1)
-  OBJDUMP := i686-w64-mingw32-objdump
-  OBJCOPY := i686-w64-mingw32-objcopy
+  OBJDUMP := objdump
+  OBJCOPY := python3 tools/elf_objcopy.py
 else # Linux & other builds
   CPP := $(CROSS)cpp -P
   OBJCOPY := $(CROSS)objcopy
@@ -535,7 +532,7 @@ else ifeq ($(findstring SDL,$(WINDOW_API)),SDL)
   else ifeq ($(TARGET_RPI),1)
     BACKEND_LDFLAGS += -lGLESv2
   else ifeq ($(OSX_BUILD),1)
-    BACKEND_LDFLAGS += -framework OpenGL $(shell pkg-config --libs glew)
+    BACKEND_LDFLAGS += -framework OpenGL
   else
     BACKEND_LDFLAGS += -lGL
   endif
@@ -664,6 +661,13 @@ ifeq ($(EXTERNAL_DATA),1)
 endif
 
 ASFLAGS := -I include -I $(BUILD_DIR) $(VERSION_ASFLAGS)
+ifeq ($(OSX_BUILD),1)
+  # clang takes --defsym through -Wa
+  comma := ,
+  ASFLAGS := -I include -I $(BUILD_DIR) $(subst --defsym ,-Wa$(comma)--defsym$(comma),$(VERSION_ASFLAGS))
+else
+  AS_DEPFLAGS = -MD $(BUILD_DIR)/$*.d
+endif
 
 ifeq ($(TARGET_WEB),1)
   LDFLAGS := -lm -lGL -lSDL2 -no-pie -s TOTAL_MEMORY=64MB -g4 --source-map-base http://localhost:8080/ -s "EXTRA_EXPORTED_RUNTIME_METHODS=['callMain']"
@@ -705,6 +709,10 @@ ifeq ($(FPV_DRONE),1)
     # full path: -static would skip libfpv.dll.a when searching -lfpv
     LDFLAGS += $(LIBFPV_BUILD)/libfpv.dll.a
     FPV_LIBS := $(BUILD_DIR)/libfpv.dll
+  else ifeq ($(OSX_BUILD),1)
+    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/mac
+    LDFLAGS += -L$(LIBFPV_BUILD) -lfpv -Wl,-rpath,@executable_path
+    FPV_LIBS := $(BUILD_DIR)/libfpv.0.dylib
   else
     LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/linux
     LDFLAGS += -L$(LIBFPV_BUILD) -lfpv -Wl,-rpath,'$$ORIGIN'
@@ -743,12 +751,7 @@ ZEROTERM = $(PYTHON) $(TOOLS_DIR)/zeroterm.py
 
 all: $(EXE)
 
-# thank you apple very cool
-ifeq ($(HOST_OS),Darwin)
-  CP := gcp
-else
-  CP := cp
-endif
+CP := cp
 
 ifeq ($(EXTERNAL_DATA),1)
 
@@ -864,7 +867,7 @@ RSP_DIRS := $(BUILD_DIR)/rsp
 ALL_DIRS := $(BUILD_DIR) $(addprefix $(BUILD_DIR)/,$(SRC_DIRS) $(ASM_DIRS) $(GODDARD_SRC_DIRS) $(ULTRA_SRC_DIRS) $(ULTRA_ASM_DIRS) $(ULTRA_BIN_DIRS) $(BIN_DIRS) $(TEXTURE_DIRS) $(TEXT_DIRS) $(SOUND_SAMPLE_DIRS) $(addprefix levels/,$(LEVEL_DIRS)) include) $(MIO0_DIR) $(addprefix $(MIO0_DIR)/,$(VERSION)) $(SOUND_BIN_DIR) $(SOUND_BIN_DIR)/sequences/$(VERSION) $(RSP_DIRS)
 
 # Make sure build directory exists before compiling anything
-DUMMY != mkdir -p $(ALL_DIRS)
+DUMMY := $(shell mkdir -p $(ALL_DIRS))
 
 $(BUILD_DIR)/include/text_strings.h: $(BUILD_DIR)/include/text_menu_strings.h
 $(BUILD_DIR)/include/text_strings.h: $(BUILD_DIR)/include/text_options_strings.h
@@ -1060,7 +1063,7 @@ $(BUILD_DIR)/%.o: $(BUILD_DIR)/%.c
 	$(CC) -c $(CFLAGS) -o $@ $<
 
 $(BUILD_DIR)/%.o: %.s
-	$(AS) $(ASFLAGS) -MD $(BUILD_DIR)/$*.d -o $@ $<
+	$(AS) $(ASFLAGS) $(AS_DEPFLAGS) -o $@ $<
 
 
 
