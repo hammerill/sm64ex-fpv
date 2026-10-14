@@ -30,6 +30,7 @@
 #include "controller/controller_api.h"
 #include "controller/controller_keyboard.h"
 #include "fs/fs.h"
+#include "platform.h"
 
 #include "game/game_init.h"
 #include "game/main.h"
@@ -74,21 +75,56 @@ void set_vblank_handler(s32 index, struct VblankHandler *handler, OSMesgQueue *q
 static bool inited = false;
 
 #include "game/display.h" // for gGlobalTimer
+
+// the last game frame's display list, drawn again for every displayed frame
+static struct SPTask *display_task;
+
 void send_display_list(struct SPTask *spTask) {
     if (!inited) return;
-    gfx_run((Gfx *)spTask->task.t.data_ptr);
+    display_task = spTask;
 }
 
 #ifdef VERSION_EU
 #define SAMPLES_HIGH 656
 #define SAMPLES_LOW 640
+#define GAME_FRAME_TIME (1.0 / 25.0)
 #else
 #define SAMPLES_HIGH 544
 #define SAMPLES_LOW 528
+#define GAME_FRAME_TIME (1.0 / 30.0)
 #endif
 
-void produce_one_frame(void) {
-    gfx_start_frame();
+extern void interp_begin_game_frame(void);
+extern void interp_patch_frame(f32 t);
+
+// Parts that only record a halfway state between two game frames (HUD, dialogs,
+// transitions, paintings, particles) switch to the current one once per game frame.
+static bool halfway_patched = true;
+
+static void patch_interpolations_halfway(void) {
+    extern void mtx_patch_interpolated(void);
+    extern void patch_screen_transition_interpolated(void);
+    extern void patch_title_screen_scales(void);
+    extern void patch_interpolated_dialog(void);
+    extern void patch_interpolated_hud(void);
+    extern void patch_interpolated_paintings(void);
+    extern void patch_interpolated_bubble_particles(void);
+    extern void patch_interpolated_snow_particles(void);
+    mtx_patch_interpolated();
+    patch_screen_transition_interpolated();
+    patch_title_screen_scales();
+    patch_interpolated_dialog();
+    patch_interpolated_hud();
+    patch_interpolated_paintings();
+    patch_interpolated_bubble_particles();
+    patch_interpolated_snow_particles();
+    halfway_patched = true;
+}
+
+static void run_game_frame(void) {
+    // they patch the last display list, which must happen before it is replaced
+    if (!halfway_patched) patch_interpolations_halfway();
+    interp_begin_game_frame();
 
     const f32 master_mod = (f32)configMasterVolume / 127.0f;
     set_sequence_player_volume(SEQ_PLAYER_LEVEL, (f32)configMusicVolume / 127.0f * master_mod);
@@ -97,6 +133,7 @@ void produce_one_frame(void) {
 
     game_loop_one_iteration();
     thread6_rumble_loop(NULL);
+    halfway_patched = false;
 
     int samples_left = audio_api->buffered();
     u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
@@ -115,8 +152,47 @@ void produce_one_frame(void) {
     //printf("Audio samples before submitting: %d\n", audio_api->buffered());
 
     audio_api->play((u8 *)audio_buffer, 2 * num_audio_samples * 4);
+}
 
+/**
+ * One displayed frame. The game logic runs at 30 Hz (25 Hz for EU); with an
+ * uncapped framerate every displayed frame in between interpolates the last two
+ * game frames, so the framerate is set by vsync (or the GPU, without vsync).
+ */
+void produce_one_frame(void) {
+    static double game_frame_start, next_game_frame;
+    double now = sys_time();
+
+    gfx_start_frame();
+
+    // first frame, or fell far behind (loading, a hang): don't try to catch up
+    if (next_game_frame == 0.0 || now - next_game_frame > 0.25) next_game_frame = now;
+    if (now >= next_game_frame) {
+        game_frame_start = next_game_frame;
+        next_game_frame += GAME_FRAME_TIME;
+        run_game_frame();
+    }
+
+    f32 t = 1.0f;
+    if (configUncappedFramerate) {
+        t = (f32) ((now - game_frame_start) / GAME_FRAME_TIME);
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+    }
+
+#ifdef FPV_DRONE
+    fpv_sm64_frame_tick();
+#endif
+    if (!halfway_patched && t >= 0.75f) patch_interpolations_halfway();
+    interp_patch_frame(t);
+    if (display_task != NULL) gfx_run((Gfx *)display_task->task.t.data_ptr);
     gfx_end_frame();
+
+    if (!configUncappedFramerate) {
+        // one displayed frame per game frame (sleeping can wake up early)
+        double remain;
+        while ((remain = next_game_frame - sys_time()) > 0.0) sys_sleep((uint64_t) (remain * 1000000.0));
+    }
 }
 
 void audio_shutdown(void) {
@@ -157,24 +233,8 @@ static void request_anim_frame(void (*func)(double time)) {
     }), func);
 }
 
-static void on_anim_frame(double time) {
-    static double target_time;
-
-    time *= 0.03; // milliseconds to frame count (33.333 ms -> 1)
-
-    if (time >= target_time + 10.0) {
-        // We are lagging 10 frames behind, probably due to coming back after inactivity,
-        // so reset, with a small margin to avoid potential jitter later.
-        target_time = time - 0.010;
-    }
-
-    for (int i = 0; i < 2; i++) {
-        // If refresh rate is 15 Hz or something we might need to generate two frames
-        if (time >= target_time) {
-            produce_one_frame();
-            target_time = target_time + 1.0;
-        }
-    }
+static void on_anim_frame(UNUSED double time) {
+    produce_one_frame(); // paces the game frames itself
 
     if (inited) // only continue if the init flag is still set
         request_anim_frame(on_anim_frame);

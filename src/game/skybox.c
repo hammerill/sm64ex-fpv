@@ -2,6 +2,7 @@
 
 #include "area.h"
 #include "engine/math_util.h"
+#include "game_init.h"
 #include "geo_misc.h"
 #include "gfx_dimensions.h"
 #include "level_update.h"
@@ -286,6 +287,11 @@ Gfx *init_skybox_display_list(s8 player, s8 background, s8 colorIndex) {
 #define SKYBOX_SPHERE_SUB 4
 #define SKYBOX_SPHERE_RADIUS 1000.0f
 
+// view matrices of the spheres drawn in the last game frame (current and previous state)
+static Mtx *sSkyboxSphereViews[2];
+static s32 sSkyboxSphereCount;
+static u32 sSkyboxSphereTimer;
+
 /**
  * The drone camera rolls and flips, which the scrolling backdrop cannot show.
  * Instead, wrap the same 32x32 tiles around the camera as a sphere: each of the
@@ -311,6 +317,13 @@ static Gfx *create_skybox_sphere(s8 background, s8 colorIndex, Mat4 rot, f32 fov
 
     guPerspective(proj, &perspNorm, fov, (f32) SCREEN_WIDTH / (f32) SCREEN_HEIGHT, 10.0f, 4000.0f, 1.0f);
     mtxf_to_mtx(view, rot);
+    if (sSkyboxSphereTimer != gGlobalTimer) {
+        sSkyboxSphereTimer = gGlobalTimer;
+        sSkyboxSphereCount = 0;
+    }
+    if (sSkyboxSphereCount < 2) {
+        sSkyboxSphereViews[sSkyboxSphereCount++] = view;
+    }
 
     gSPDisplayList(g++, dl_skybox_begin);
     gSPPerspNormalize(g++, perspNorm);
@@ -356,6 +369,19 @@ static Gfx *create_skybox_sphere(s8 background, s8 colorIndex, Mat4 rot, f32 fov
     gSPDisplayList(g++, dl_skybox_end);
     gSPEndDisplayList(g);
     return dlist;
+}
+
+/**
+ * Turns the sphere of the last game frame to the live drone camera (frame interpolation).
+ */
+void skybox_fpv_refresh_view(void) {
+    Mat4 rot;
+    f32 fov;
+    if (sSkyboxSphereTimer + 1 == gGlobalTimer && fpv_sm64_view_rotation(rot, &fov)) {
+        for (s32 i = 0; i < sSkyboxSphereCount; i++) {
+            mtxf_to_mtx(sSkyboxSphereViews[i], rot);
+        }
+    }
 }
 #endif
 

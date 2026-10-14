@@ -49,6 +49,16 @@ Mario ignores all input while the drone is up, except Start. Settings,
 EEPROMs and logs are kept in the game's user folder
 (`%APPDATA%\sm64ex\libfpv-data`, `%APPDATA%\sm64ex\fpv.log`).
 
+## Framerate
+
+The game logic still runs at 30 Hz, but the picture is not capped: every
+displayed frame interpolates between the last two game frames (based on the
+60 FPS patch in `enhancements/`), so the framerate follows your monitor with
+Vertical Sync on, or goes as high as the GPU allows with it off. The drone is
+simulated once per displayed frame, and its cameras and model use its live
+pose, so the view responds at the full framerate. "Uncapped Framerate" in
+Options > Display (`uncapped_framerate` in the config) switches back to 30 FPS.
+
 ## Building
 
 Build libfpv first (see its README), then build sm64ex with `FPV_DRONE=1`.
@@ -96,3 +106,8 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
   and the keyboard/SDL2 controllers. Window events are forwarded to libfpv in
   `gfx_sdl2.c`.
 - **Audio.** `pc_main.c` mixes in the synthesized motor sound.
+- **Framerate.** `pc_main.c` runs a game frame every 33 ms and calls
+  `fpv_sm64_frame_tick` before each displayed frame. `rendering_graph_node.c`
+  takes the drone camera live when it blends a frame, moves the drone model to
+  its live pose, and skips frustum culling, because the view can turn between
+  game frames.

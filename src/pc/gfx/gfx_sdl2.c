@@ -81,13 +81,6 @@ static void fpv_handle_key_event(const SDL_KeyboardEvent *key) {
 }
 #endif
 
-// TODO: figure out if this shit even works
-#ifdef VERSION_EU
-# define FRAMERATE 25
-#else
-# define FRAMERATE 30
-#endif
-
 static SDL_Window *wnd;
 static SDL_GLContext ctx = NULL;
 static int inverted_scancode_table[512];
@@ -98,12 +91,6 @@ static void (*kb_all_keys_up)(void) = NULL;
 
 // whether to use timer for frame control
 static bool use_timer = true;
-// time between consequtive game frames, in perf counter ticks
-static double frame_rate = 0.0; // set in init()
-// time in which a frame began, in perf counter ticks
-static double frame_time = 0.0; // updated in start_frame()
-// GetPerformanceFrequency
-static double perf_freq = 0.0;
 
 const SDL_Scancode windows_scancode_table[] = {
   /*  0                        1                            2                         3                            4                     5                            6                            7  */
@@ -223,11 +210,6 @@ static void gfx_sdl_init(const char *window_title) {
     SDL_GL_SetSwapInterval(configWindow.vsync);
 
     gfx_sdl_set_fullscreen();
-
-    perf_freq = SDL_GetPerformanceFrequency();
-
-    frame_rate = perf_freq / FRAMERATE;
-    frame_time = SDL_GetPerformanceCounter();
 
     for (size_t i = 0; i < sizeof(windows_scancode_table) / sizeof(SDL_Scancode); i++) {
         inverted_scancode_table[windows_scancode_table[i]] = i;
@@ -353,23 +335,6 @@ static bool gfx_sdl_start_frame(void) {
     return true;
 }
 
-static inline void sync_framerate_with_timer(void) {
-    // calculate how long it took for the frame to render
-    const double now = SDL_GetPerformanceCounter();
-    const double frame_length = now - frame_time;
-
-    if (frame_length < frame_rate) {
-        // Only sleep if we have time to spare
-        const double remain = frame_rate - frame_length;
-        // Sleep remaining time away
-        sys_sleep(remain / perf_freq * 1000000.0);
-        // Assume we slept the required amount of time to keep the timer stable
-        frame_time = now + remain;
-    } else {
-        frame_time = now;
-    }
-}
-
 static void gfx_sdl_swap_buffers_begin(void) {
     // Swap after we finished rendering, only if this frame wasn't dropped.
     // This will wait for vblank if vsync is enabled and then update our window with our render.
@@ -377,11 +342,7 @@ static void gfx_sdl_swap_buffers_begin(void) {
 }
 
 static void gfx_sdl_swap_buffers_end(void) {
-    // The game isn't always going to run at a consistent rate,
-    // with frame pacing going up and down depending on hardware performance.
-    // Sleep off any remaining time to make the main loop iteration be called at a consistent frane rate.
-    // We do this after our swap, because it actually will take the time to swap into account.
-    sync_framerate_with_timer();
+    // frame pacing is done by produce_one_frame (pc_main.c)
 }
 
 static double gfx_sdl_get_time(void) {

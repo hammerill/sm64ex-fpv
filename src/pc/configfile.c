@@ -94,6 +94,7 @@ bool         configCameraMouse   = false;
 #endif
 bool         configSkipIntro     = 0;
 bool         configHUD           = true;
+bool         configUncappedFramerate = true;
 #ifdef DISCORDRPC
 bool         configDiscordRPC    = true;
 #endif
@@ -105,6 +106,7 @@ static const struct ConfigOption options[] = {
     {.name = "window_w",             .type = CONFIG_TYPE_UINT, .uintValue = &configWindow.w},
     {.name = "window_h",             .type = CONFIG_TYPE_UINT, .uintValue = &configWindow.h},
     {.name = "vsync",                .type = CONFIG_TYPE_BOOL, .boolValue = &configWindow.vsync},
+    {.name = "uncapped_framerate",   .type = CONFIG_TYPE_BOOL, .boolValue = &configUncappedFramerate},
     {.name = "texture_filtering",    .type = CONFIG_TYPE_UINT, .uintValue = &configFiltering},
     {.name = "master_volume",        .type = CONFIG_TYPE_UINT, .uintValue = &configMasterVolume},
     {.name = "music_volume",         .type = CONFIG_TYPE_UINT, .uintValue = &configMusicVolume},

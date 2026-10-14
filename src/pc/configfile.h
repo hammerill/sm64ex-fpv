@@ -58,6 +58,7 @@ extern bool         configCameraMouse;
 extern bool         configCameraAnalog;
 #endif
 extern bool         configHUD;
+extern bool         configUncappedFramerate;
 extern bool         configSkipIntro;
 #ifdef DISCORDRPC
 extern bool         configDiscordRPC;

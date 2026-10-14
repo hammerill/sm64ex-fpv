@@ -5,6 +5,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "cliopts.h"
 #include "fs/fs.h"
@@ -160,6 +161,12 @@ const char *sys_exe_path(void) {
     return path;
 }
 
+double sys_time(void) {
+    static double freq;
+    if (freq == 0.0) freq = (double) SDL_GetPerformanceFrequency();
+    return (double) SDL_GetPerformanceCounter() / freq;
+}
+
 static void sys_fatal_impl(const char *msg) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR , "Fatal error", msg, NULL);
     fprintf(stderr, "FATAL ERROR:\n%s\n", msg);
@@ -177,6 +184,12 @@ const char *sys_user_path(void) {
 
 const char *sys_exe_path(void) {
     return ".";
+}
+
+double sys_time(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
 }
 
 static void sys_fatal_impl(const char *msg) {

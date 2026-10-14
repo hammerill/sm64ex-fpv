@@ -17,6 +17,8 @@ void fpv_sm64_shutdown(void);
 void fpv_sm64_filter_pad(OSContPad *pad);
 // level_update (PLAY_MODE_NORMAL), once per game frame
 void fpv_sm64_update(void);
+// pc_main, before drawing each displayed frame: simulates the flight up to now
+void fpv_sm64_frame_tick(void);
 // surface_load
 void fpv_sm64_terrain_loaded(void);
 void fpv_sm64_object_collision_loaded(struct Object *obj, Mat4 transform);
@@ -36,6 +38,9 @@ s32 fpv_sm64_view_matrix(Mat4 view, Vec3f pos, Vec3f focus);
 s32 fpv_sm64_view_frustum(f32 *fov, s16 *near);
 // skybox: a sphere around the camera instead of the scrolling backdrop (handles roll and flips)
 s32 fpv_sm64_view_rotation(Mat4 rot, f32 *fov);
+// frame interpolation: the drone object, and its live world transform
+s32 fpv_sm64_is_drone_object(struct Object *obj);
+s32 fpv_sm64_drone_pose(Mat4 pose);
 
 // gfx_pc (renderer thread = main thread): after the 3D scene, and at the end of the frame
 void fpv_sm64_gfx_scene_done(int width, int height);

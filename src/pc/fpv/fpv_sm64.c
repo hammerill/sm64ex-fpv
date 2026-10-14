@@ -76,6 +76,8 @@ static s32 sCamMode;
 static u16 sPadPrev, sPadPressed;
 static u64 sLastTick;
 static float sTime;
+static u32 sUpdateTimer;        // gGlobalTimer of the last game frame that updated the drone
+static float sImpactSpeed;      // hardest impact since the last game frame
 
 static s16 sLevel = -1, sArea = -1;
 static float sSpawnPos[3], sSpawnRot[4];
@@ -106,6 +108,7 @@ static s32 sTestGoombaHit;
 static s32 sTestDeploys;
 static s32 sTestOverlay;
 static s32 sTestDive;
+static u32 sTestDrawnFrames; // displayed frames, for the test's framerate log
 
 static void test_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #include <stdarg.h>
@@ -960,6 +963,14 @@ static void test_update(void) {
     }
     fpv_input_set_channels(ch, 8);
     if (sTestLevelFrames % 15 == 0) {
+        static u64 lastLog;
+        static u32 lastDrawn;
+        u64 now = now_ticks();
+        if (lastLog) {
+            test_log("displayed %.0f fps", (sTestDrawnFrames - lastDrawn) * (double) SDL_GetPerformanceFrequency() / (double) (now - lastLog));
+        }
+        lastLog = now;
+        lastDrawn = sTestDrawnFrames;
         int solids = 0;
         for (int i = 0; i < MAX_SOLIDS; i++) solids += sSolids[i].id != 0;
         test_log("t=%.1f props %.0f%% %.0f%% %.0f%% %.0f%% pos %.0f %.0f %.0f speed %.0f km/h alt %.0f flags 0x%x arm_block '%s' impacts %u coins %d noise %.2f solids %d",
@@ -1008,10 +1019,31 @@ void fpv_sm64_update(void) {
 
     sync_solids();
     update_water();
+    // the flight itself is simulated once per displayed frame, in fpv_sm64_frame_tick
+    sUpdateTimer = gGlobalTimer;
+    update_drone_object();
 
+    Vec3f cur = { sFrame.position[0], sFrame.position[1], sFrame.position[2] };
+    f32 speed = sqrtf(sFrame.velocity[0] * sFrame.velocity[0] + sFrame.velocity[1] * sFrame.velocity[1]
+                      + sFrame.velocity[2] * sFrame.velocity[2]);
+    f32 dx = cur[0] - sPrevPos[0], dy = cur[1] - sPrevPos[1], dz = cur[2] - sPrevPos[2];
+    if (dx * dx + dy * dy + dz * dz < 1000.0f * 1000.0f) { // skip respawn teleports
+        drone_interactions(sPrevPos, cur, speed);
+    }
+    vec3f_copy(sPrevPos, cur);
+
+    if (sImpactSpeed > BONK_MIN_SPEED && sDroneObj) {
+        play_sound(SOUND_ACTION_BONK, sDroneObj->header.gfx.cameraToObject);
+    }
+    sImpactSpeed = 0.0f;
+}
+
+void fpv_sm64_frame_tick(void) {
     u64 now = now_ticks();
     float dt = (float) ((double) (now - sLastTick) / (double) SDL_GetPerformanceFrequency());
     sLastTick = now;
+    // only fly while the game runs (not paused, no level transition)
+    if (!sActive || sDrone == NULL || sUpdateTimer + 1 != gGlobalTimer) return;
     if (dt > 0.1f) dt = 0.1f;
     sTime += dt;
     if (fpv_drone_tick(sDrone, dt, &sFrame) != FPV_OK) return;
@@ -1031,23 +1063,20 @@ void fpv_sm64_update(void) {
         sPropAngle[i] += sFrame.motors[i].rpm / 60.0f * 6.2831853f * dt * sFrame.motors[i].spin_direction;
         sPropAngle[i] = fmodf(sPropAngle[i], 6.2831853f);
     }
-    update_drone_object();
-
-    Vec3f cur = { sFrame.position[0], sFrame.position[1], sFrame.position[2] };
-    f32 speed = sqrtf(sFrame.velocity[0] * sFrame.velocity[0] + sFrame.velocity[1] * sFrame.velocity[1]
-                      + sFrame.velocity[2] * sFrame.velocity[2]);
-    f32 dx = cur[0] - sPrevPos[0], dy = cur[1] - sPrevPos[1], dz = cur[2] - sPrevPos[2];
-    if (dx * dx + dy * dy + dz * dz < 1000.0f * 1000.0f) { // skip respawn teleports
-        drone_interactions(sPrevPos, cur, speed);
-    }
-    vec3f_copy(sPrevPos, cur);
-
     for (u32 i = 0; i < sFrame.impact_count; i++) {
-        if (sFrame.impacts[i].speed > BONK_MIN_SPEED && sDroneObj) {
-            play_sound(SOUND_ACTION_BONK, sDroneObj->header.gfx.cameraToObject);
-            break;
-        }
+        if (sFrame.impacts[i].speed > sImpactSpeed) sImpactSpeed = sFrame.impacts[i].speed;
     }
+    update_drone_object();
+}
+
+s32 fpv_sm64_is_drone_object(struct Object *obj) {
+    return sActive && obj != NULL && obj == sDroneObj;
+}
+
+s32 fpv_sm64_drone_pose(Mat4 pose) {
+    if (!sActive || !sHaveFrame || sDroneObj == NULL) return FALSE;
+    mtxf_copy(pose, sDroneMtx);
+    return TRUE;
 }
 
 // --- culling and rooms ---------------------------------------------------------------------
@@ -1168,9 +1197,18 @@ void fpv_sm64_gfx_frame_done(int width, int height) {
     fpv_overlay_set_display((float) width, (float) height, height > 900 ? (float) height / 900.0f : 1.0f);
     gfx_fpv_gl_draw(fpv_overlay_render(dt), width, height);
 #ifdef RAPI_GL
-    // test runs: screenshots at fixed points of the scripted flight
+    // test runs: screenshots of the game camera, then at fixed points of the scripted flight
     static const float shots[] = { 2.0f, 5.5f, 7.0f, 9.0f };
     static int shotIdx;
+    sTestDrawnFrames++;
+    static int marioShot;
+    if (sTestLevel && !sActive && sTestDeploys == 0 && sTestLevelFrames >= 30 && !marioShot) {
+        char path[SYS_MAX_PATH];
+        snprintf(path, sizeof(path), "%s/fpv_shot_mario.bmp", sys_user_path());
+        gfx_fpv_gl_save_bmp(path, width, height);
+        test_log("screenshot %s", path);
+        marioShot = 1;
+    }
     if (sTestLevel && sActive && shotIdx < 4 && sTestTime >= shots[shotIdx]) {
         char path[SYS_MAX_PATH];
         snprintf(path, sizeof(path), "%s/fpv_shot%d.bmp", sys_user_path(), shotIdx);
