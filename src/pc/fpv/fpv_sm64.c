@@ -115,6 +115,8 @@ static s32 sTestDeploys;
 static s32 sTestOverlay;
 static s32 sTestDive;
 static s32 sTestClean; // flip the OSD disable switch (AUX6) on halfway through the flight
+static s32 sTestPilot; // look at Mario from the front instead of a drone camera
+static f32 sTestPilotYaw; // pilot=<degrees>: around him, 0 = straight in front
 static u32 sTestDrawnFrames; // displayed frames, for the test's framerate log
 
 static void test_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -403,6 +405,126 @@ static void init_drone_nodes(void) {
     sBodyNode.fnNode.node.prev = &sPropNode.fnNode.node;
     sPropNode.fnNode.node.next = &sBodyNode.fnNode.node;
     sPropNode.fnNode.node.prev = &sBodyNode.fnNode.node;
+}
+
+// --- the pilot's radio -----------------------------------------------------------------------
+// Drawn in Mario's hands (mario_misc.c) while he pilots, in world units. The
+// radio's face points up and back at him and its sticks follow the channels
+// Betaflight sees (mode 2: throttle and yaw on the left stick).
+
+#define RADIO_BOXES 14
+#define RADIO_TILT 0.75f // radians the face is tipped back towards Mario
+static struct Object sRadioObj;
+static struct GraphNodeGenerated sRadioNode;
+
+// a box in the radio's frame (x left, y out of the face, z away from Mario), tipped back
+static void radio_box(Vtx *v, float cx, float cy, float cz, float hx, float hy, float hz, const u8 *col) {
+    build_box(v, cx, cy, cz, hx, hy, hz, 0.0f, col);
+    float c = cosf(RADIO_TILT), sn = sinf(RADIO_TILT);
+    for (int i = 0; i < 24; i++) {
+        float y = v[i].v.ob[1], z = v[i].v.ob[2];
+        v[i].v.ob[1] = (s16) (y * c + z * sn);
+        v[i].v.ob[2] = (s16) (-y * sn + z * c);
+    }
+}
+
+static Gfx *geo_fpv_radio(s32 callContext, UNUSED struct GraphNode *node, UNUSED void *context) {
+    if (callContext != GEO_CONTEXT_RENDER || !sActive) return NULL;
+    static const u8 body[3] = { 52, 54, 62 };
+    static const u8 grip[3] = { 28, 28, 32 };
+    static const u8 screen[3] = { 70, 180, 230 };
+    static const u8 black[3] = { 12, 12, 14 };
+    static const u8 metal[3] = { 190, 190, 200 };
+    static const u8 red[3] = { 220, 30, 30 };
+    Vtx *v = alloc_display_list(RADIO_BOXES * 24 * sizeof(Vtx));
+    Gfx *g = alloc_display_list((RADIO_BOXES * 7 + 8) * sizeof(Gfx));
+    if (!v || !g) return NULL;
+    Gfx *dl = g;
+    float ch[4] = { 0.0f, 0.0f, -1.0f, 0.0f };
+    if (sHaveFrame) memcpy(ch, sFrame.channels, sizeof(ch));
+
+    // in fifths of a unit (the radio is drawn at scale 0.2)
+    int n = 0;
+    radio_box(&v[24 * n++], 0, 0, 0, 120, 25, 70, body);
+    radio_box(&v[24 * n++], 105, -15, -55, 30, 35, 40, grip);
+    radio_box(&v[24 * n++], -105, -15, -55, 30, 35, 40, grip);
+    radio_box(&v[24 * n++], 0, 27, -35, 38, 2, 24, screen);
+    radio_box(&v[24 * n++], 0, 15, 85, 30, 15, 15, red);         // top handle
+    radio_box(&v[24 * n++], 80, 20, 90, 8, 8, 60, black);        // antenna
+    radio_box(&v[24 * n++], 100, 45, 55, 5, 20, 5, metal);       // switches
+    radio_box(&v[24 * n++], -100, 45, 55, 5, 20, 5, metal);
+    // gimbals, then the sticks leaning with their channel (+x is Mario's left)
+    const float stickX[2] = { 65, -65 };
+    const float stickDx[2] = { -ch[3], -ch[0] }, stickDz[2] = { ch[2], ch[1] };
+    for (int i = 0; i < 2; i++) {
+        radio_box(&v[24 * n++], stickX[i], 27, 25, 28, 3, 28, black);
+        radio_box(&v[24 * n++], stickX[i] + stickDx[i] * 10, 48, 25 + stickDz[i] * 10, 6, 20, 6, metal);
+        radio_box(&v[24 * n++], stickX[i] + stickDx[i] * 20, 70, 25 + stickDz[i] * 20, 11, 6, 11, black);
+    }
+
+    gDPPipeSync(g++);
+    gSPClearGeometryMode(g++, G_LIGHTING | G_CULL_BACK);
+    gSPTexture(g++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF);
+    gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE);
+    for (int b = 0; b < n; b++) {
+        gSPVertex(g++, &v[24 * b], 24, 0);
+        for (int face = 0; face < 6; face++) {
+            int o = face * 4;
+            gSP2Triangles(g++, o, o + 1, o + 2, 0, o, o + 2, o + 3, 0);
+        }
+    }
+    gSPSetGeometryMode(g++, G_LIGHTING | G_CULL_BACK);
+    gSPEndDisplayList(g++);
+    return dl;
+}
+
+static void init_radio(void) {
+    init_graph_node_generated(NULL, &sRadioNode, geo_fpv_radio, 0);
+    sRadioNode.fnNode.node.flags = (LAYER_OPAQUE << 8) | GRAPH_RENDER_ACTIVE;
+    sRadioNode.fnNode.node.next = sRadioNode.fnNode.node.prev = &sRadioNode.fnNode.node;
+    sRadioObj.header.gfx.sharedChild = &sRadioNode.fnNode.node;
+    vec3f_set(sRadioObj.header.gfx.scale, 0.2f, 0.2f, 0.2f);
+}
+
+struct Object *fpv_sm64_radio_object(void) {
+    return sActive ? &sRadioObj : NULL;
+}
+
+// The head follows the drone, and the whole body turns when it gets behind him.
+// Like real pilots, he leans into the roll and the yaw.
+void fpv_sm64_pilot_pose(struct MarioState *m) {
+    struct MarioBodyState *body = m->marioBodyState;
+    body->handState = MARIO_HAND_FISTS;
+    s16 yaw = m->faceAngle[1], pitch = 0;
+    if (sHaveFrame) {
+        f32 dx = sFrame.position[0] - m->pos[0], dz = sFrame.position[2] - m->pos[2];
+        f32 dy = sFrame.position[1] - (m->pos[1] + 120.0f);
+        f32 dist = sqrtf(dx * dx + dz * dz);
+        if (dist > 1.0f) yaw = atan2s(dz, dx);
+        pitch = atan2s(dist, dy);
+    }
+    s16 dYaw = yaw - m->faceAngle[1];
+    if (dYaw > 0x2800) m->faceAngle[1] = approach_s16_symmetric(m->faceAngle[1], (s16) (yaw - 0x2800), 0x400);
+    if (dYaw < -0x2800) m->faceAngle[1] = approach_s16_symmetric(m->faceAngle[1], (s16) (yaw + 0x2800), 0x400);
+    dYaw = yaw - m->faceAngle[1];
+    if (dYaw > 0x2800) dYaw = 0x2800;
+    if (dYaw < -0x2800) dYaw = -0x2800;
+    // negative head pitch looks up
+    s32 headPitch = -pitch;
+    if (headPitch < -0x2400) headPitch = -0x2400;
+    if (headPitch > 0x1400) headPitch = 0x1400;
+    body->headAngle[0] = approach_s32(body->headAngle[0], headPitch, 0x600, 0x600);
+    body->headAngle[1] = approach_s32(body->headAngle[1], dYaw, 0x600, 0x600);
+    body->headAngle[2] = 0;
+
+    float roll = 0.0f, fwd = 0.0f;
+    if (sHaveFrame) {
+        roll = sFrame.channels[0] + 0.5f * sFrame.channels[3];
+        fwd = sFrame.channels[1];
+    }
+    body->torsoAngle[0] = approach_s32(body->torsoAngle[0], (s32) (fwd * 0x0A00), 0x200, 0x200);
+    body->torsoAngle[1] = 0;
+    body->torsoAngle[2] = approach_s32(body->torsoAngle[2], (s32) (roll * 0x0C00), 0x200, 0x200);
 }
 
 // --- collision -----------------------------------------------------------------------------
@@ -711,6 +833,7 @@ void fpv_sm64_init(void) {
     fpv_material_set(MAT_WATER, &water);
     fpv_audio_configure(32000, 2);
     init_drone_nodes();
+    init_radio();
     sInited = TRUE;
 
     const char *test = getenv("SM64_FPV_TEST");
@@ -721,6 +844,9 @@ void fpv_sm64_init(void) {
         sTestOverlay = strstr(test, "overlay") != NULL;
         sTestDive = strstr(test, "dive") != NULL;
         sTestClean = strstr(test, "clean") != NULL;
+        sTestPilot = strstr(test, "pilot") != NULL;
+        if (sTestPilot) sTestCam = CAM_CHASE; // no lens pass or OSD
+        if (sTestPilot && strstr(test, "pilot=")) sTestPilotYaw = atof(strstr(test, "pilot=") + 6) * (3.14159265f / 180.0f);
         test_log("fpv test: level %d cam %d", sTestLevel, sTestCam);
     }
     printf("fpv: libfpv %s ready, data in %s\n", fpv_version_string(), dir);
@@ -1148,8 +1274,37 @@ s32 fpv_sm64_room_position(Vec3f pos) {
 
 // --- camera ------------------------------------------------------------------------------------
 
+// self test: in front of Mario, looking at his hands
+static const fpv_camera *pilot_test_camera(void) {
+    static fpv_camera c;
+    struct MarioState *m = gMarioState;
+    f32 yaw = m->faceAngle[1] * (3.14159265f / 32768.0f) + sTestPilotYaw;
+    Vec3f target = { m->pos[0], m->pos[1] + 90.0f, m->pos[2] };
+    c.position[0] = target[0] + sinf(yaw) * 160.0f;
+    c.position[1] = target[1] + 40.0f;
+    c.position[2] = target[2] + cosf(yaw) * 160.0f;
+    f32 len = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        c.forward[i] = target[i] - c.position[i];
+        len += c.forward[i] * c.forward[i];
+    }
+    len = sqrtf(len);
+    for (int i = 0; i < 3; i++) c.forward[i] /= len;
+    // up = (right x forward) with right = forward x world up
+    f32 r[3] = { -c.forward[2], 0.0f, c.forward[0] };
+    c.up[0] = r[1] * c.forward[2] - r[2] * c.forward[1];
+    c.up[1] = r[2] * c.forward[0] - r[0] * c.forward[2];
+    c.up[2] = r[0] * c.forward[1] - r[1] * c.forward[0];
+    len = sqrtf(c.up[0] * c.up[0] + c.up[1] * c.up[1] + c.up[2] * c.up[2]);
+    for (int i = 0; i < 3; i++) c.up[i] /= len;
+    c.fov_y_degrees = 45.0f;
+    c.near_plane = 10.0f;
+    return &c;
+}
+
 static const fpv_camera *active_camera(void) {
     if (!sActive || !sHaveFrame) return NULL;
+    if (sTestPilot) return pilot_test_camera();
     switch (sCamMode) {
         case CAM_CHASE: return &sFrame.chase_camera;
         case CAM_LOS: return &sFrame.los_camera;

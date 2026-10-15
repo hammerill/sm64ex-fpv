@@ -24,6 +24,10 @@ void fpv_sm64_terrain_loaded(void);
 void fpv_sm64_object_collision_loaded(struct Object *obj, Mat4 transform);
 
 s32 fpv_sm64_is_active(void);
+// ACT_FPV_PILOTING, once per game frame: Mario watches the drone and leans with the sticks
+void fpv_sm64_pilot_pose(struct MarioState *m);
+// mario_misc: the radio drawn in Mario's hands while piloting, or NULL
+struct Object *fpv_sm64_radio_object(void);
 // the FPV camera (with its Betaflight OSD) is on screen
 s32 fpv_sm64_osd_visible(void);
 // the pilot's OSD disable switch is on in the FPV view: no game UI over the video

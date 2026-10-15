@@ -23,6 +23,7 @@
 #include "save_file.h"
 #include "skybox.h"
 #include "sound_init.h"
+#include "pc/fpv/fpv_sm64.h"
 
 #define TOAD_STAR_1_REQUIREMENT 12
 #define TOAD_STAR_2_REQUIREMENT 25
@@ -387,7 +388,7 @@ Gfx *geo_mario_tilt_torso(s32 callContext, struct GraphNode *node, UNUSED Mat4 *
         struct GraphNodeRotation *rotNode = (struct GraphNodeRotation *) node->next;
 
         if (action != ACT_BUTT_SLIDE && action != ACT_HOLD_BUTT_SLIDE && action != ACT_WALKING
-            && action != ACT_RIDING_SHELL_GROUND) {
+            && action != ACT_RIDING_SHELL_GROUND && action != ACT_FPV_PILOTING) {
             vec3s_copy(bodyState->torsoAngle, gVec3sZero);
         }
         rotNode->rotation[0] = bodyState->torsoAngle[1];
@@ -412,7 +413,7 @@ Gfx *geo_mario_head_rotation(s32 callContext, struct GraphNode *node, UNUSED Mat
         if (camera->mode == CAMERA_MODE_C_UP) {
             rotNode->rotation[0] = gPlayerCameraState->headRotation[1];
             rotNode->rotation[2] = gPlayerCameraState->headRotation[0];
-        } else if (action & ACT_FLAG_WATER_OR_TEXT) {
+        } else if ((action & ACT_FLAG_WATER_OR_TEXT) || action == ACT_FPV_PILOTING) {
             rotNode->rotation[0] = bodyState->headAngle[1];
             rotNode->rotation[1] = bodyState->headAngle[2];
             rotNode->rotation[2] = bodyState->headAngle[0];
@@ -558,7 +559,7 @@ Gfx *geo_switch_mario_hand_grab_pos(s32 callContext, struct GraphNode *b, Mat4 *
                     if (marioState->action & ACT_FLAG_THROWING) {
                         vec3s_set(asHeldObj->translation, 50, 0, 0);
                     } else {
-                        vec3s_set(asHeldObj->translation, 50, 0, 110);
+                        vec3s_set(asHeldObj->translation, 120, 30, 60);
                     }
                     break;
                 case GRAB_POS_HEAVY_OBJ:
@@ -569,6 +570,13 @@ Gfx *geo_switch_mario_hand_grab_pos(s32 callContext, struct GraphNode *b, Mat4 *
                     break;
             }
         }
+#ifdef FPV_DRONE
+        else if (marioState->action == ACT_FPV_PILOTING && fpv_sm64_radio_object() != NULL) {
+            // the radio, between his hands
+            asHeldObj->objNode = fpv_sm64_radio_object();
+            vec3s_set(asHeldObj->translation, 120, 30, 60);
+        }
+#endif
     } else if (callContext == GEO_CONTEXT_HELD_OBJ) {
         // ! The HOLP is set here, which is why it only updates when the held object is drawn.
         // This is why it won't update during a pause buffered hitstun or when the camera is very far

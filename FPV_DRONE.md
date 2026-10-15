@@ -53,7 +53,9 @@ still show. Betaflight Configurator can connect to `ws://localhost:5761`.
 F8 > Fly also has buttons to deploy or recall the drone, respawn it and switch
 the camera.
 
-Mario ignores all input while the drone is up, except Start. Settings,
+While the drone is up, Mario holds a radio whose sticks follow yours. He watches
+the drone, turns around when it flies behind him, and leans into the turns.
+He ignores all input except Start. Settings,
 EEPROMs and logs are kept in the game's user folder
 (`%APPDATA%\sm64ex\libfpv-data`, `%APPDATA%\sm64ex\fpv.log`).
 
@@ -88,12 +90,13 @@ OSD and the overlay (other renderers tell libfpv there is no lens pass).
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
 and screenshots to `fpv_shot*.bmp` in the user folder. `clean` turns the OSD
-disable switch on after 6 s.
+disable switch on after 6 s. `pilot` films Mario during the flight instead of
+a drone camera, from in front of him or `<degrees>` around him.
 
 ## How it hooks the game
 

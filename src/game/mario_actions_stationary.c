@@ -130,8 +130,8 @@ s32 act_idle(struct MarioState *m) {
         return 1;
     }
 
-    if (m->actionState == 3 && fpv_pilot_awake()) {
-        m->actionState = 0;
+    if (fpv_pilot_awake()) {
+        return set_mario_action(m, ACT_FPV_PILOTING, 0);
     }
 
     if (m->actionState == 3) {
@@ -191,6 +191,28 @@ void play_anim_sound(struct MarioState *m, u32 actionState, s32 animFrame, u32 s
     if (m->actionState == actionState && m->marioObj->header.gfx.unk38.animFrame == animFrame) {
         play_sound(sound, m->marioObj->header.gfx.cameraToObject);
     }
+}
+
+// Mario holds the radio while the drone is up, watching it and leaning with the sticks.
+s32 act_fpv_piloting(struct MarioState *m) {
+    if (m->quicksandDepth > 30.0f) {
+        return set_mario_action(m, ACT_IN_QUICKSAND, 0);
+    }
+
+    if (!fpv_pilot_awake()) {
+        return set_mario_action(m, ACT_IDLE, 0);
+    }
+
+    if (check_common_idle_cancels(m)) {
+        return 1;
+    }
+
+    set_mario_animation(m, MARIO_ANIM_IDLE_WITH_LIGHT_OBJ);
+#ifdef FPV_DRONE
+    fpv_sm64_pilot_pose(m);
+#endif
+    stationary_ground_step(m);
+    return 0;
 }
 
 s32 act_start_sleeping(struct MarioState *m) {
@@ -1149,6 +1171,7 @@ s32 mario_execute_stationary_action(struct MarioState *m) {
     /* clang-format off */
     switch (m->action) {
         case ACT_IDLE:                    sp24 = act_idle(m);                             break;
+        case ACT_FPV_PILOTING:            sp24 = act_fpv_piloting(m);                     break;
         case ACT_START_SLEEPING:          sp24 = act_start_sleeping(m);                   break;
         case ACT_SLEEPING:                sp24 = act_sleeping(m);                         break;
         case ACT_WAKING_UP:               sp24 = act_waking_up(m);                        break;
