@@ -27,11 +27,17 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
 ## Kamikaze drone
 
 With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
-(see Building), the drone carries a warhead. Without them nothing changes.
+(see Building), the drone can carry a warhead. Without them nothing changes.
 
+- **Installing.** The bomb is not installed by default: the drone flies like
+  in any other build until it is ticked in F8 > Fly > "Bomb installed". It
+  stays on every new or repaired drone until the game is closed (it is not
+  saved).
 - **Arming.** The motors only arm with the bomb arm switch (AUX7) off. Take
-  off, flip it, and after the arming delay (OSD `ARMING 3`, then `STEADY`)
-  the warhead is live. K toggles it on the keyboard, X (West) on a gamepad.
+  off, flip it, and the warhead is live (OSD `STEADY`; with an arming delay
+  set in F8 > Fly, `ARMING 3` first). K toggles it on the keyboard, X (West)
+  on a gamepad. The bomb status is a Betaflight OSD element ("Custom message
+  1"): move or hide it in F8 > OSD > "Bomb status" or the Configurator.
 - **Detonation.** A live warhead goes off on any touch, including a light tap
   on the ground and any enemy or boss, or on the explode switch (AUX8; X held
   on the keyboard, the right shoulder on a gamepad). With the bomb switch off
@@ -45,12 +51,14 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
   close). Mario is hurt if he stands in the explosion itself.
 - **After the explosion.** Options > Controls > "After the Explosion" (or the
   button in F8 > Fly) picks the ending. **Signal Lost** (default) keeps the
-  goggles on screen: static with libfpv's `SIGNAL LOST`. **Cutscene** shows the
+  goggles on screen: static with libfpv's `SIGNAL LOST`, and none of the
+  game's HUD over it, like a real lost feed. **Cutscene** shows the
   blast from the pilot's side, short of walls. After 4 s Mario takes over
   again. Drone Reset gives a new drone at once instead, and Drone Toggle
   recalls it.
 - **Payload, arming delay and fuse.** The warhead is real weight (by default
-  60 % of the quad). F8 > Fly tunes it, the arming delay and the impact fuse.
+  60 % of the quad). F8 > Fly tunes it, the arming delay (none by default) and
+  the impact fuse.
 
 ## Controls
 
@@ -136,7 +144,7 @@ Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
 and screenshots to `fpv_shot*.bmp` in the user folder. `clean` turns the OSD
 disable switch on after 6 s. `pilot` films Mario during the flight instead of
 a drone camera, from in front of him or `<degrees>` around him.
-`kamikaze` (kamikaze builds) turns the bomb arm switch on after take-off and
+`kamikaze` (kamikaze builds) installs the bomb, turns the bomb arm switch on after take-off and
 strikes the Goomba, then plays the signal lost ending (or the cutscene with
 `cutscene`) and redeploys. It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
 and `fpv_shot_after.bmp`.
@@ -159,7 +167,8 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
 - **Culling.** `behavior_script.c`, `surface_load.c` and the room switch in
   `object_helpers.c` cull by the closer of Mario and the drone.
 - **UI.** `area.c` drops the HUD and text labels from the display list while
-  the OSD disable switch is on in the FPV view.
+  the OSD disable switch is on in the FPV view, and over the static after a
+  kamikaze blast.
 - **Input.** Three new binds are added to the configuration, the options menu
   and the keyboard/SDL2 controllers. Window events are forwarded to libfpv in
   `gfx_sdl2.c`.

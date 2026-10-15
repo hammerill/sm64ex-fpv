@@ -30,7 +30,8 @@ void fpv_sm64_pilot_pose(struct MarioState *m);
 struct Object *fpv_sm64_radio_object(void);
 // the FPV camera (with its Betaflight OSD) is on screen
 s32 fpv_sm64_osd_visible(void);
-// the pilot's OSD disable switch is on in the FPV view: no game UI over the video
+// the pilot's OSD disable switch is on in the FPV view, or the feed is lost after the blast:
+// no game UI over the video
 s32 fpv_sm64_ui_hidden(void);
 // any drone camera (FPV, chase, line of sight) is on screen
 s32 fpv_sm64_camera_active(void);

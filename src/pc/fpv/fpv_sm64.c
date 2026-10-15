@@ -6,8 +6,9 @@
 // object collision models as moving libfpv surface objects, water and lava
 // kill the props), collects coins, stars and 1-ups, and knocks out enemies it
 // hits at speed. World units: 100 per metre, so Mario is about 1.6 m tall.
-// With a kamikaze build of libfpv (LIBFPV_KAMIKAZE), the drone carries a
-// warhead: its blast slays the enemies around it and hits the bosses.
+// With a kamikaze build of libfpv (LIBFPV_KAMIKAZE), the drone can carry a
+// warhead (F8 > Fly > "Bomb installed"): its blast slays the enemies around it
+// and hits the bosses.
 
 #ifdef FPV_DRONE
 
@@ -1111,7 +1112,10 @@ void fpv_sm64_init(void) {
         if (sTestPilot && strstr(test, "pilot=")) sTestPilotYaw = atof(strstr(test, "pilot=") + 6) * (3.14159265f / 180.0f);
 #ifdef LIBFPV_KAMIKAZE
         sTestKamikaze = strstr(test, "kamikaze") != NULL;
-        if (sTestKamikaze) configFpvBoomEnding = strstr(test, "cutscene") != NULL;
+        if (sTestKamikaze) {
+            configFpvBoomEnding = strstr(test, "cutscene") != NULL;
+            fpv_kamikaze_set_installed(1); // the player would tick it in F8 > Fly
+        }
 #endif
         test_log("fpv test: level %d cam %d", sTestLevel, sTestCam);
     }
@@ -1298,6 +1302,10 @@ s32 fpv_sm64_osd_visible(void) {
 }
 
 s32 fpv_sm64_ui_hidden(void) {
+#ifdef LIBFPV_KAMIKAZE
+    // a lost feed: only the static and "SIGNAL LOST"
+    if (sActive && sBoom == BOOM_SIGNAL_LOST) return TRUE;
+#endif
     return fpv_sm64_osd_visible() && (sFrame.flags & FPV_DRONE_OSD_DISABLED);
 }
 
@@ -1355,8 +1363,8 @@ static void test_update(void) {
     for (int i = 10; i < FPV_CHANNEL_COUNT; i++) ch[i] = -1; // kamikaze builds: bomb arm and explode off
     if (t > 0.5f) ch[4] = 1;
 #ifdef LIBFPV_KAMIKAZE
-    // bomb arm switch on in the air: live after the arming delay (3 s), before the Goomba
-    if (sTestKamikaze && sTestDeploys == 1 && t > 2.0f) ch[10] = 1;
+    // bomb arm switch on high in the air: live at once (no arming delay by default), before the Goomba
+    if (sTestKamikaze && sTestDeploys == 1 && t > 4.0f) ch[10] = 1;
 #endif
     if (sTestClean && t > 6.0f) ch[9] = 1;
     if (t > 2.5f) ch[1] = 0.35f;
