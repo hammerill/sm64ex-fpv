@@ -42,6 +42,7 @@
 #include "pc/configfile.h"
 #include "pc/platform.h"
 #include "pc/controller/controller_api.h"
+#include "pc/gfx/gfx_pc.h"
 #ifdef RAPI_GL
 #include "pc/gfx/gfx_fpv_gl.h"
 #else
@@ -66,6 +67,8 @@ u32 attack_object(struct Object *o, s32 interaction);
 #define MAT_WATER 3
 
 enum CamMode { CAM_FPV, CAM_CHASE, CAM_LOS, CAM_COUNT };
+// buttons in the overlay's Fly tab (F8), the same as the drone binds
+enum OverlayAction { ACTION_TOGGLE = 1, ACTION_RESET, ACTION_CAMERA };
 
 static s32 sInited;
 static s32 sActive;
@@ -81,6 +84,9 @@ static float sImpactSpeed;      // hardest impact since the last game frame
 
 static s16 sLevel = -1, sArea = -1;
 static float sSpawnPos[3], sSpawnRot[4];
+static double sSpawnSimTime;    // sim_time of the first frame after fpv_drone_create
+static float sWarmup;           // host seconds since then, while the frames may be stale
+static s32 sActionsShown = -1;  // sActive when the overlay buttons were last set
 static Vec3f sPrevPos;
 
 static u32 sTerrainGen = 1, sLoadedTerrainGen;
@@ -108,9 +114,12 @@ static s32 sTestGoombaHit;
 static s32 sTestDeploys;
 static s32 sTestOverlay;
 static s32 sTestDive;
+static s32 sTestClean; // flip the OSD disable switch (AUX6) on halfway through the flight
 static u32 sTestDrawnFrames; // displayed frames, for the test's framerate log
 
 static void test_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+struct fpv_camera;
+static f32 camera_fov(const fpv_camera *c);
 #include <stdarg.h>
 static void test_log(const char *fmt, ...) {
     if (!sTestLog) return;
@@ -684,6 +693,9 @@ void fpv_sm64_init(void) {
     cfg.data_dir = dir;
     cfg.coords = fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, UNITS_PER_METER);
     cfg.log = log_cb;
+#ifndef RAPI_GL
+    cfg.flags |= FPV_INIT_NO_LENS_DISTORTION; // only the OpenGL renderer draws the fisheye
+#endif
     fpv_result res = fpv_global_init(&cfg);
     if (res != FPV_OK) {
         fprintf(stderr, "fpv: libfpv init failed: %s\n", fpv_last_error());
@@ -708,6 +720,7 @@ void fpv_sm64_init(void) {
         gDebugLevelSelect = 1;
         sTestOverlay = strstr(test, "overlay") != NULL;
         sTestDive = strstr(test, "dive") != NULL;
+        sTestClean = strstr(test, "clean") != NULL;
         test_log("fpv test: level %d cam %d", sTestLevel, sTestCam);
     }
     printf("fpv: libfpv %s ready, data in %s\n", fpv_version_string(), dir);
@@ -806,15 +819,20 @@ static void deploy(struct MarioState *m) {
     }
     memcpy(sSpawnPos, desc.position, sizeof(sSpawnPos));
     memcpy(sSpawnRot, desc.rotation, sizeof(sSpawnRot));
+    // Mario is the pilot: the OSD's home arrow and distance lead back to him
+    fpv_gps_set_home(m->pos);
 
     memset(&sFrame, 0, sizeof(sFrame));
     sFrame.struct_size = sizeof(sFrame);
-    // the first frames after creation can still be empty: pose from the spawn
-    // until the simulation reports, and the model from the first real motor layout
+    // the first frames after creation can still show the origin or the previous
+    // drone (the simulation clock is global): the spawn pose and the game camera
+    // until 50 ms of simulation have passed, and the model from the first real motor layout
     fpv_drone_tick(sDrone, 0.0f, &sFrame);
+    sSpawnSimTime = sFrame.sim_time;
+    sWarmup = 0.0f;
     memcpy(sFrame.position, desc.position, sizeof(desc.position));
     memcpy(sFrame.rotation, desc.rotation, sizeof(desc.rotation));
-    sHaveFrame = TRUE;
+    sHaveFrame = FALSE;
     sModelBuilt = FALSE;
     vec3f_set(sPrevPos, desc.position[0], desc.position[1], desc.position[2]);
 
@@ -862,6 +880,10 @@ s32 fpv_sm64_camera_active(void) {
 
 s32 fpv_sm64_osd_visible(void) {
     return sActive && sHaveFrame && sCamMode == CAM_FPV;
+}
+
+s32 fpv_sm64_ui_hidden(void) {
+    return fpv_sm64_osd_visible() && (sFrame.flags & FPV_DRONE_OSD_DISABLED);
 }
 
 void fpv_sm64_filter_pad(OSContPad *pad) {
@@ -914,8 +936,9 @@ static void test_update(void) {
     sCamMode = sTestCam;
     if (sTestOverlay && sTestDeploys == 1) fpv_overlay_set_open(sTestTime > 3.0f && sTestTime < 6.0f);
     // arm, then hold ~2.5 m above the ground and cruise forward (angle mode)
-    float t = sTestTime, ch[8] = { 0, 0, -1, 0, -1, 1, -1, -1 };
+    float t = sTestTime, ch[FPV_CHANNEL_COUNT] = { 0, 0, -1, 0, -1, 1, -1, -1, -1, -1 };
     if (t > 0.5f) ch[4] = 1;
+    if (sTestClean && t > 6.0f) ch[9] = 1;
     if (t > 2.5f) ch[1] = 0.35f;
     if (t > 1.0f) {
         // after 5 s fly low (~0.5 m) through a coin line and into a Goomba spawned ahead
@@ -961,7 +984,7 @@ static void test_update(void) {
             if (sTestGoombaHit && sTestLevelFrames % 5 == 0) test_log("goomba action %d", g->oAction);
         }
     }
-    fpv_input_set_channels(ch, 8);
+    fpv_input_set_channels(ch, FPV_CHANNEL_COUNT);
     if (sTestLevelFrames % 15 == 0) {
         static u64 lastLog;
         static u32 lastDrawn;
@@ -978,14 +1001,33 @@ static void test_update(void) {
                  sFrame.motors[2].prop_damage * 100.0f, sFrame.motors[3].prop_damage * 100.0f, sFrame.position[0], sFrame.position[1], sFrame.position[2], sFrame.speed_kmh, sFrame.altitude,
                  sFrame.flags, sFrame.arming_disable_text, sFrame.impact_count, gMarioState->numCoins,
                  sFrame.video.noise, solids);
+        if (sTestClean) test_log("ui hidden %d, fov %.1f (aspect %.2f) -> %.1f at %ux%u", fpv_sm64_ui_hidden(),
+                                 sFrame.camera.fov_y_degrees, sFrame.camera.aspect_hint, camera_fov(&sFrame.camera),
+                                 gfx_current_dimensions.width, gfx_current_dimensions.height);
     }
+}
+
+static u16 overlay_actions(void) {
+    if (sActionsShown != sActive) {
+        sActionsShown = sActive;
+        fpv_overlay_set_action(ACTION_TOGGLE, sActive ? "Recall the drone" : "Deploy the drone");
+        fpv_overlay_set_action(ACTION_RESET, sActive ? "Repair and respawn at the launch point" : NULL);
+        fpv_overlay_set_action(ACTION_CAMERA, sActive ? "Camera: FPV / chase / line of sight" : NULL);
+    }
+    u16 pressed = 0;
+    for (uint32_t id; (id = fpv_overlay_poll_action()) != 0;) {
+        if (id == ACTION_TOGGLE) pressed |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT;
+        if (id == ACTION_RESET) pressed |= FPV_BTN_RESET >> FPV_BTN_SHIFT;
+        if (id == ACTION_CAMERA) pressed |= FPV_BTN_CAMERA >> FPV_BTN_SHIFT;
+    }
+    return pressed;
 }
 
 void fpv_sm64_update(void) {
     if (!sInited) return;
     test_update();
     struct MarioState *m = gMarioState;
-    u16 pressed = sPadPressed;
+    u16 pressed = sPadPressed | overlay_actions();
     sPadPressed = 0;
 
     if (sActive) {
@@ -1017,6 +1059,7 @@ void fpv_sm64_update(void) {
         play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
     }
 
+    fpv_gps_set_home(m->pos); // he can still be carried by a platform
     sync_solids();
     update_water();
     // the flight itself is simulated once per displayed frame, in fpv_sm64_frame_tick
@@ -1047,10 +1090,17 @@ void fpv_sm64_frame_tick(void) {
     if (dt > 0.1f) dt = 0.1f;
     sTime += dt;
     if (fpv_drone_tick(sDrone, dt, &sFrame) != FPV_OK) return;
-    if (sFrame.position[0] == 0.0f && sFrame.position[1] == 0.0f && sFrame.position[2] == 0.0f) {
-        // no pose reported yet: hold the spawn pose
-        memcpy(sFrame.position, sSpawnPos, sizeof(sSpawnPos));
-        memcpy(sFrame.rotation, sSpawnRot, sizeof(sSpawnRot));
+    if (!sHaveFrame) {
+        sWarmup += dt;
+        if ((sFrame.sim_time - sSpawnSimTime < 0.05 && sWarmup < 0.5f)
+            || (sFrame.position[0] == 0.0f && sFrame.position[1] == 0.0f && sFrame.position[2] == 0.0f)) {
+            // no fresh pose yet: hold the spawn pose and keep the game camera
+            memcpy(sFrame.position, sSpawnPos, sizeof(sSpawnPos));
+            memcpy(sFrame.rotation, sSpawnRot, sizeof(sSpawnRot));
+            sFrame.impact_count = 0;
+            update_drone_object();
+            return;
+        }
     }
     sHaveFrame = TRUE;
     if (!sModelBuilt && (sFrame.motors[0].position[0] != 0.0f || sFrame.motors[0].position[2] != 0.0f)) {
@@ -1139,10 +1189,29 @@ s32 fpv_sm64_view_matrix(Mat4 view, Vec3f pos, Vec3f focus) {
     return TRUE;
 }
 
+// libfpv widens the FPV camera's FOV for the fisheye at its aspect_hint (4:3 analog, 16:9 HD);
+// redo it for the window's aspect, so the distorted picture's top and bottom
+// edges show the FOV the player chose (docs/INTEGRATION.md in libfpv)
+static f32 camera_fov(const fpv_camera *c) {
+    f32 fov = c->fov_y_degrees;
+    float aspect = gfx_current_dimensions.height ? (float) gfx_current_dimensions.width / (float) gfx_current_dimensions.height : 0.0f;
+    if (c != &sFrame.camera || (c->distortion_k1 == 0.0f && c->distortion_k2 == 0.0f) || c->aspect_hint <= 0.0f
+        || aspect <= 0.0f || c->distortion_zoom <= 0.0f) {
+        return fov;
+    }
+    float r2h = 1.0f / (1.0f + c->aspect_hint * c->aspect_hint), r2a = 1.0f / (1.0f + aspect * aspect);
+    float edgeHint = 1.0f + c->distortion_k1 * r2h + c->distortion_k2 * r2h * r2h;
+    float edgeReal = 1.0f + c->distortion_k1 * r2a + c->distortion_k2 * r2a * r2a;
+    if (edgeReal <= 0.0f) return fov;
+    // the zoom divides both edges alike
+    fov = atanf(tanf(fov * (3.14159265f / 360.0f)) * edgeHint / edgeReal) * (360.0f / 3.14159265f);
+    return fov > 170.0f ? 170.0f : fov;
+}
+
 s32 fpv_sm64_view_frustum(f32 *fov, s16 *near) {
     const fpv_camera *c = active_camera();
     if (!c) return FALSE;
-    *fov = c->fov_y_degrees;
+    *fov = camera_fov(c);
     f32 n = c->near_plane;
     if (n < 4.0f) n = 4.0f;
     if (n > 50.0f) n = 50.0f;
@@ -1154,7 +1223,7 @@ s32 fpv_sm64_view_rotation(Mat4 rot, f32 *fov) {
     Vec3f pos, focus;
     if (!fpv_sm64_view_matrix(rot, pos, focus)) return FALSE;
     rot[3][0] = rot[3][1] = rot[3][2] = 0.0f;
-    *fov = active_camera()->fov_y_degrees;
+    *fov = camera_fov(active_camera());
     return TRUE;
 }
 

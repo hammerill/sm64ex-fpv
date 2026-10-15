@@ -386,10 +386,20 @@ void render_game(void) {
 
         gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, BORDER_HEIGHT, SCREEN_WIDTH,
                       SCREEN_HEIGHT - BORDER_HEIGHT);
+#ifdef FPV_DRONE
+        // the OSD disable switch: build the HUD and text (so their state goes on) but drop them
+        Gfx *uiStart = gDisplayListHead;
+#endif
         render_hud();
 
         gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
         render_text_labels();
+#ifdef FPV_DRONE
+        if (fpv_sm64_ui_hidden()) {
+            gDisplayListHead = uiStart;
+            gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        }
+#endif
         do_cutscene_handler();
         print_displaying_credits_entry();
         gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, BORDER_HEIGHT, SCREEN_WIDTH,

@@ -21,6 +21,8 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
   drawn even when they are far from Mario.
 - **Recall.** The drone is recalled when Mario is hurt badly, dies, starts a
   cutscene, or the level or area changes.
+- **GPS.** Mario is the GPS home point, so the OSD's home arrow and home
+  distance (enable them in the Configurator's OSD tab) always lead back to him.
 
 ## Controls
 
@@ -42,8 +44,14 @@ With a gamepad (mode 2), A arms, the left stick gives throttle (centre is idle)
 and yaw, and the right stick gives pitch and roll. Y toggles turtle mode.
 
 For the real feel, plug in a radio (EdgeTX, OpenTX, ELRS, Crossfire in USB
-joystick mode) and map it in F8 > Radio. Betaflight Configurator can connect to
-`ws://localhost:5761`.
+joystick mode) and map it in F8 > Radio. Besides arm, angle, beeper and
+turtle, the wizard can bind an air mode switch (AUX5) and an OSD disable
+switch (AUX6). With OSD disable on, the FPV view is clean: the Betaflight OSD
+and the game's HUD and text are hidden. The pause menu and the F8 overlay
+still show. Betaflight Configurator can connect to `ws://localhost:5761`.
+
+F8 > Fly also has buttons to deploy or recall the drone, respawn it and switch
+the camera.
 
 Mario ignores all input while the drone is up, except Start. Settings,
 EEPROMs and logs are kept in the game's user folder
@@ -76,15 +84,16 @@ make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- CC=x86_64-w64-mingw32-gcc \
 
 `libfpv.dll` (or `libfpv.so.0`, or `libfpv.0.dylib`) is copied next to the executable, and the
 game needs it at run time. Only the OpenGL renderer draws the lens effect, the
-OSD and the overlay.
+OSD and the overlay (other renderers tell libfpv there is no lens pass).
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
-and screenshots to `fpv_shot*.bmp` in the user folder.
+and screenshots to `fpv_shot*.bmp` in the user folder. `clean` turns the OSD
+disable switch on after 6 s.
 
 ## How it hooks the game
 
@@ -92,7 +101,8 @@ All new code is in `src/pc/fpv/fpv_sm64.c` and `src/pc/gfx/gfx_fpv_gl.c`.
 Changes to existing files are guarded by `#ifdef FPV_DRONE`:
 
 - **Camera.** `rendering_graph_node.c` takes the full camera orientation from
-  libfpv, so the view can roll and flip. It also takes the FOV and near plane.
+  libfpv, so the view can roll and flip. It also takes the FOV (re-widened for the
+  fisheye at the window's aspect) and near plane.
 - **Skybox.** In a drone camera, `skybox.c` wraps the skybox tiles around the
   camera as a sphere.
 - **Lens, OSD and overlay.** `area.c` puts a marker in the display list after
@@ -102,6 +112,8 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
   every object collision model while it is tangible.
 - **Culling.** `behavior_script.c`, `surface_load.c` and the room switch in
   `object_helpers.c` cull by the closer of Mario and the drone.
+- **UI.** `area.c` drops the HUD and text labels from the display list while
+  the OSD disable switch is on in the FPV view.
 - **Input.** Three new binds are added to the configuration, the options menu
   and the keyboard/SDL2 controllers. Window events are forwarded to libfpv in
   `gfx_sdl2.c`.
