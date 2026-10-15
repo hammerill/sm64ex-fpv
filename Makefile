@@ -54,6 +54,8 @@ DISCORDRPC ?= 0
 # Enable the FPV drone (links libfpv from a libfpv checkout and its build folder)
 FPV_DRONE ?= 0
 LIBFPV_DIR ?= ../libfpv
+# Kamikaze drone: needs libfpv built with -DLIBFPV_KAMIKAZE=ON (build folders get a -kamikaze suffix)
+FPV_KAMIKAZE ?= 0
 
 # Various workarounds for weird toolchains
 
@@ -619,6 +621,10 @@ endif
 ifeq ($(FPV_DRONE),1)
   CC_CHECK += -DFPV_DRONE -I$(LIBFPV_DIR)/include
   CFLAGS += -DFPV_DRONE -I$(LIBFPV_DIR)/include
+  ifeq ($(FPV_KAMIKAZE),1)
+    CC_CHECK += -DLIBFPV_KAMIKAZE=1
+    CFLAGS += -DLIBFPV_KAMIKAZE=1
+  endif
 endif
 
 # Check for texture fix option
@@ -704,17 +710,18 @@ endif # End of LDFLAGS
 
 FPV_LIBS :=
 ifeq ($(FPV_DRONE),1)
+  LIBFPV_SUFFIX := $(if $(filter 1,$(FPV_KAMIKAZE)),-kamikaze,)
   ifeq ($(WINDOWS_BUILD),1)
-    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/win
+    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/win$(LIBFPV_SUFFIX)
     # full path: -static would skip libfpv.dll.a when searching -lfpv
     LDFLAGS += $(LIBFPV_BUILD)/libfpv.dll.a
     FPV_LIBS := $(BUILD_DIR)/libfpv.dll
   else ifeq ($(OSX_BUILD),1)
-    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/mac
+    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/mac$(LIBFPV_SUFFIX)
     LDFLAGS += -L$(LIBFPV_BUILD) -lfpv -Wl,-rpath,@executable_path
     FPV_LIBS := $(BUILD_DIR)/libfpv.0.dylib
   else
-    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/linux
+    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/linux$(LIBFPV_SUFFIX)
     LDFLAGS += -L$(LIBFPV_BUILD) -lfpv -Wl,-rpath,'$$ORIGIN'
     FPV_LIBS := $(BUILD_DIR)/libfpv.so.0
   endif
@@ -808,8 +815,12 @@ endif
 
 ifneq ($(FPV_LIBS),)
 
-$(FPV_LIBS): $(LIBFPV_BUILD)/$(notdir $(FPV_LIBS))
-	@$(CP) -fL $< $@
+# checked on every build: switching FPV_KAMIKAZE switches the library, which may be older
+$(FPV_LIBS): $(LIBFPV_BUILD)/$(notdir $(FPV_LIBS)) fpv-libs-check
+	@cmp -s $< $@ || $(CP) -fL $< $@
+
+.PHONY: fpv-libs-check
+fpv-libs-check:
 
 endif
 
@@ -1067,7 +1078,7 @@ $(BUILD_DIR)/%.o: %.s
 
 
 
-$(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(if $(RPC_LIBS),$(BUILD_DIR)/$(RPC_LIBS),) $(FPV_LIBS)
+$(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(if $(RPC_LIBS),$(BUILD_DIR)/$(RPC_LIBS),) | $(FPV_LIBS)
 	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
 
 # macOS .app bundle: make app (pass the same options as the build, e.g. FPV_DRONE=1)

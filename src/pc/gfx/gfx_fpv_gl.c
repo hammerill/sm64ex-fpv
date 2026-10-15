@@ -131,7 +131,7 @@ static const char *sPostVs = GLSL_HEADER
     "void main() { uv = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }\n";
 static const char *sPostFs = GLSL_HEADER
     "varying vec2 uv; uniform sampler2D scene; uniform vec2 k; uniform float zoom; uniform float aspect;\n"
-    "uniform float noise; uniform float breakup; uniform float time; uniform float analog;\n"
+    "uniform float noise; uniform float breakup; uniform float time; uniform float analog; uniform float lost;\n"
     "float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n"
     "void main() {\n"
     "  vec2 scale = vec2(aspect, 1.0) / (0.5 * sqrt(aspect * aspect + 1.0));\n"
@@ -147,13 +147,14 @@ static const char *sPostFs = GLSL_HEADER
     "  float n = hash(uv * 513.0 + time) - 0.5;\n"
     "  col += n * noise * 0.9 * analog;\n"
     "  col = mix(col, vec3(dot(col, vec3(0.3, 0.59, 0.11))), noise * 0.6 * analog);\n"
+    "  col = mix(col, vec3(hash(floor(uv * vec2(320.0, 240.0)) + fract(time) * 91.0) * 0.5), lost);\n"
     "  gl_FragColor = vec4(col, 1.0);\n"
     "}\n";
 
 static bool sInited;
 static GLuint sUiProg, sPostProg, sUiVbo, sUiIbo, sPostVbo, sSceneTex;
 static GLint sUiScreen, sUiTex;
-static GLint sPostScene, sPostK, sPostZoom, sPostAspect, sPostNoise, sPostBreakup, sPostTime, sPostAnalog;
+static GLint sPostScene, sPostK, sPostZoom, sPostAspect, sPostNoise, sPostBreakup, sPostTime, sPostAnalog, sPostLost;
 static int sSceneW, sSceneH;
 
 struct FontTex {
@@ -179,6 +180,7 @@ static void init(void) {
     sPostBreakup = glGetUniformLocation(sPostProg, "breakup");
     sPostTime = glGetUniformLocation(sPostProg, "time");
     sPostAnalog = glGetUniformLocation(sPostProg, "analog");
+    sPostLost = glGetUniformLocation(sPostProg, "lost");
     glGenBuffers(1, &sUiVbo);
     glGenBuffers(1, &sUiIbo);
     glGenBuffers(1, &sPostVbo);
@@ -207,7 +209,7 @@ static void end_attribs(void) {
 }
 
 void gfx_fpv_gl_postprocess(int width, int height, float k1, float k2, float zoom, float noise,
-                            float breakup, float analog, float time) {
+                            float breakup, float analog, float lost, float time) {
     if (width <= 0 || height <= 0) return;
     struct SavedState st;
     save_state(&st);
@@ -243,6 +245,7 @@ void gfx_fpv_gl_postprocess(int width, int height, float k1, float k2, float zoo
     glUniform1f(sPostBreakup, breakup);
     glUniform1f(sPostTime, time);
     glUniform1f(sPostAnalog, analog);
+    glUniform1f(sPostLost, lost);
 
     glBindBuffer(GL_ARRAY_BUFFER, sPostVbo);
     begin_attribs(1);

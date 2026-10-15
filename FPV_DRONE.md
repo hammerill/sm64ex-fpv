@@ -24,6 +24,34 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
 - **GPS.** Mario is the GPS home point, so the OSD's home arrow and home
   distance (enable them in the Configurator's OSD tab) always lead back to him.
 
+## Kamikaze drone
+
+With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
+(see Building), the drone carries a warhead. Without them nothing changes.
+
+- **Arming.** The motors only arm with the bomb arm switch (AUX7) off. Take
+  off, flip it, and after the arming delay (OSD `ARMING 3`, then `STEADY`)
+  the warhead is live. K toggles it on the keyboard, X (West) on a gamepad.
+- **Detonation.** A live warhead goes off on any touch, including a light tap
+  on the ground and any enemy or boss, or on the explode switch (AUX8; X held
+  on the keyboard, the right shoulder on a gamepad). With the bomb switch off
+  nothing explodes.
+- **Blast.** A burst of the game's explosions. Every enemy within 5 m is
+  slain: through the game's own defeat where an attack has one (so it drops
+  its coins and the level counts it), and otherwise on the spot. Bob-ombs go
+  off too. Each boss in range takes one hit, the way Mario hurts it: King
+  Bob-omb, King Whomp, the Big Boos, Wiggler, Eyerok's hands and Bowser lose
+  one health, and the big bullies are blown away (into the lava if it is
+  close). Mario is hurt if he stands in the explosion itself.
+- **After the explosion.** Options > Controls > "After the Explosion" (or the
+  button in F8 > Fly) picks the ending. **Signal Lost** (default) keeps the
+  goggles on screen: static with libfpv's `SIGNAL LOST`. **Cutscene** shows the
+  blast from the pilot's side, short of walls. After 4 s Mario takes over
+  again. Drone Reset gives a new drone at once instead, and Drone Toggle
+  recalls it.
+- **Payload, arming delay and fuse.** The warhead is real weight (by default
+  60 % of the quad). F8 > Fly tunes it, the arming delay and the impact fuse.
+
 ## Controls
 
 | Action | Keyboard | Gamepad |
@@ -75,6 +103,17 @@ Build libfpv first (see its README), then build sm64ex with `FPV_DRONE=1`.
 `LIBFPV_DIR` defaults to `../libfpv`. `LIBFPV_BUILD` defaults to its `build/win`
 folder for Windows builds, `build/mac` on macOS and `build/linux` otherwise.
 
+For the kamikaze drone, build libfpv with `-DLIBFPV_KAMIKAZE=ON` into the same
+folder with a `-kamikaze` suffix (`build/mac-kamikaze`...) and add
+`FPV_KAMIKAZE=1`. When switching between the two variants, `make clean` (or
+touch the files that include `libfpv.h`): `fpv_frame` has two more channels
+in kamikaze builds.
+
+```sh
+cmake -S ../libfpv -B ../libfpv/build/mac-kamikaze -DLIBFPV_KAMIKAZE=ON && cmake --build ../libfpv/build/mac-kamikaze -j
+make FPV_DRONE=1 FPV_KAMIKAZE=1
+```
+
 ```sh
 # Linux or macOS
 make FPV_DRONE=1
@@ -90,13 +129,17 @@ OSD and the overlay (other renderers tell libfpv there is no lens pass).
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,kamikaze[,cutscene]]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
 and screenshots to `fpv_shot*.bmp` in the user folder. `clean` turns the OSD
 disable switch on after 6 s. `pilot` films Mario during the flight instead of
 a drone camera, from in front of him or `<degrees>` around him.
+`kamikaze` (kamikaze builds) turns the bomb arm switch on after take-off and
+strikes the Goomba, then plays the signal lost ending (or the cutscene with
+`cutscene`) and redeploys. It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
+and `fpv_shot_after.bmp`.
 
 ## How it hooks the game
 
@@ -121,6 +164,8 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
   and the keyboard/SDL2 controllers. Window events are forwarded to libfpv in
   `gfx_sdl2.c`.
 - **Audio.** `pc_main.c` mixes in the synthesized motor sound.
+- **Kamikaze.** Everything else is in `fpv_sm64.c` under `LIBFPV_KAMIKAZE`;
+  `options_menu.c` adds the ending choice (`fpv_boom_ending` in the config).
 - **Framerate.** `pc_main.c` runs a game frame every 33 ms and calls
   `fpv_sm64_frame_tick` before each displayed frame. `rendering_graph_node.c`
   takes the drone camera live when it blends a frame, moves the drone model to

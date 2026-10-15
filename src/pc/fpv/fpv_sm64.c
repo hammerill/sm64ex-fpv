@@ -6,6 +6,8 @@
 // object collision models as moving libfpv surface objects, water and lava
 // kill the props), collects coins, stars and 1-ups, and knocks out enemies it
 // hits at speed. World units: 100 per metre, so Mario is about 1.6 m tall.
+// With a kamikaze build of libfpv (LIBFPV_KAMIKAZE), the drone carries a
+// warhead: its blast slays the enemies around it and hits the bosses.
 
 #ifdef FPV_DRONE
 
@@ -25,6 +27,7 @@
 #include "engine/surface_collision.h"
 #include "engine/surface_load.h"
 #include "game/area.h"
+#include "game/behavior_actions.h"
 #include "game/camera.h"
 #include "game/game_init.h"
 #include "game/interaction.h"
@@ -34,6 +37,7 @@
 #include "game/memory.h"
 #include "game/object_helpers.h"
 #include "game/object_list_processor.h"
+#include "game/spawn_sound.h"
 #include "behavior_data.h"
 #include "model_ids.h"
 #include "surface_terrains.h"
@@ -55,7 +59,8 @@
 u32 interact_coin(struct MarioState *m, u32 interactType, struct Object *o);
 u32 interact_star_or_key(struct MarioState *m, u32 interactType, struct Object *o);
 u32 attack_object(struct Object *o, s32 interaction);
-#define FPV_INT_KICK (1 << 2) // INT_KICK in interaction.c
+#define FPV_INT_GROUND_POUND (1 << 0) // INT_GROUND_POUND_OR_TWIRL in interaction.c
+#define FPV_INT_KICK (1 << 2)         // INT_KICK
 
 #define UNITS_PER_METER 100.0f
 #define DRONE_RADIUS 14.0f        // collection/attack reach around the frame centre
@@ -68,7 +73,7 @@ u32 attack_object(struct Object *o, s32 interaction);
 
 enum CamMode { CAM_FPV, CAM_CHASE, CAM_LOS, CAM_COUNT };
 // buttons in the overlay's Fly tab (F8), the same as the drone binds
-enum OverlayAction { ACTION_TOGGLE = 1, ACTION_RESET, ACTION_CAMERA };
+enum OverlayAction { ACTION_TOGGLE = 1, ACTION_RESET, ACTION_CAMERA, ACTION_ENDING };
 
 static s32 sInited;
 static s32 sActive;
@@ -99,6 +104,20 @@ static Mat4 sDroneMtx;
 
 static u8 sKeysDown[512];
 
+#ifdef LIBFPV_KAMIKAZE
+// After the blast: the static of the lost video link with "SIGNAL LOST", or a
+// cutscene of the blast (Options > Controls > After the Explosion), then Mario takes over.
+#define BOOM_ENDING_FRAMES 120 // 4 s
+enum BoomEnding { BOOM_NONE, BOOM_SIGNAL_LOST, BOOM_CUTSCENE };
+static s32 sBoom;
+static u32 sBoomFrames;     // game frames since the blast
+static float sBoomTime;     // sTime of the blast
+static Vec3f sBoomPos;
+static f32 sBoomCamYaw, sBoomCamReach;
+static fpv_kamikaze_state sWarhead;
+static u32 sDetonations;
+#endif
+
 // --- self test (SM64_FPV_TEST=<level>[,chase|los]) --------------------------------------------
 // Boots through the debug level select into <level>, deploys the drone, flies a
 // scripted autopilot and logs telemetry to <user path>/fpv_test.log, so a build
@@ -118,6 +137,7 @@ static s32 sTestClean; // flip the OSD disable switch (AUX6) on halfway through 
 static s32 sTestPilot; // look at Mario from the front instead of a drone camera
 static f32 sTestPilotYaw; // pilot=<degrees>: around him, 0 = straight in front
 static u32 sTestDrawnFrames; // displayed frames, for the test's framerate log
+static s32 sTestKamikaze; // kamikaze builds: arm the warhead and strike the Goomba
 
 static void test_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 struct fpv_camera;
@@ -766,6 +786,235 @@ static s32 touches(struct Object *o, Vec3f a, Vec3f b) {
     return FALSE;
 }
 
+#ifdef LIBFPV_KAMIKAZE
+// --- kamikaze: the blast -------------------------------------------------------------------
+// A live warhead also goes off when the drone touches an enemy. The blast
+// slays every enemy within 5 m, through the game's own defeat where an attack
+// has one (so its coins drop and the levels count it), and hits each boss
+// once, the way the boss takes damage from Mario.
+
+#define BLAST_RADIUS 500.0f    // from the blast to an enemy's hitbox
+#define BLAST_FINISH_FRAMES 45 // enemies still fighting 1.5 s after the blast are finished off
+#define MAX_BLAST_VICTIMS 64
+
+static struct Object *sVictims[MAX_BLAST_VICTIMS];
+static const BehaviorScript *sVictimBhv[MAX_BLAST_VICTIMS];
+static u32 sVictimCount, sVictimTimer;
+static s16 sVictimLevel, sVictimArea;
+
+static s32 bhv_is(struct Object *o, const BehaviorScript *bhv) {
+    return o->behavior == segmented_to_virtual(bhv);
+}
+
+static s32 is_boss(struct Object *o) {
+    return bhv_is(o, bhvKingBobomb) || bhv_is(o, bhvWhompKingBoss) || bhv_is(o, bhvBigBully)
+           || bhv_is(o, bhvBigBullyWithMinions) || bhv_is(o, bhvBigChillBully) || bhv_is(o, bhvGhostHuntBigBoo)
+           || bhv_is(o, bhvMerryGoRoundBigBoo) || bhv_is(o, bhvBalconyBigBoo) || bhv_is(o, bhvWigglerHead)
+           || bhv_is(o, bhvEyerokHand) || bhv_is(o, bhvBowser);
+}
+
+// enemies an attack doesn't defeat
+static s32 dies_at_once(struct Object *o) {
+    return bhv_is(o, bhvKoopa) || bhv_is(o, bhvSmallBully) || bhv_is(o, bhvSmallChillBully) || bhv_is(o, bhvChuckya)
+           || bhv_is(o, bhvHeaveHo) || bhv_is(o, bhvCirclingAmp) || bhv_is(o, bhvHomingAmp) || bhv_is(o, bhvBubba);
+}
+
+#define MOB_INTERACT (INTERACT_BOUNCE_TOP | INTERACT_BOUNCE_TOP2 | INTERACT_HIT_FROM_BELOW | INTERACT_KOOPA \
+                      | INTERACT_BULLY | INTERACT_MR_BLIZZARD | INTERACT_BREAKABLE | INTERACT_SHOCK)
+
+static s32 is_mob(struct Object *o) {
+    if (is_boss(o) || bhv_is(o, bhvWigglerBody) || bhv_is(o, bhvChainChomp) || bhv_is(o, bhvTreasureChestBottom)) {
+        return FALSE;
+    }
+    // Koopa the Quick races Mario, he isn't fought
+    if (bhv_is(o, bhvKoopa) && (o->oBehParams2ndByte == KOOPA_BP_KOOPA_THE_QUICK_BOB
+                                || o->oBehParams2ndByte == KOOPA_BP_KOOPA_THE_QUICK_THI)) {
+        return FALSE;
+    }
+    return (o->oInteractType & MOB_INTERACT) || dies_at_once(o) || bhv_is(o, bhvBobomb) || bhv_is(o, bhvSmallWhomp);
+}
+
+// from p to the object's hitbox cylinder (Whomps have none: a cylinder of their size)
+static f32 blast_distance(struct Object *o, Vec3f p) {
+    f32 radius = o->hitboxRadius, height = o->hitboxHeight, down = o->hitboxDownOffset;
+    if (radius <= 0.0f) {
+        radius = 150.0f * o->header.gfx.scale[0];
+        height = 300.0f * o->header.gfx.scale[1];
+        down = 0.0f;
+    }
+    f32 dx = p[0] - o->oPosX, dz = p[2] - o->oPosZ;
+    f32 h = sqrtf(dx * dx + dz * dz) - radius;
+    f32 bottom = o->oPosY - down, top = bottom + height;
+    f32 v = p[1] < bottom ? bottom - p[1] : p[1] > top ? p[1] - top : 0.0f;
+    if (h < 0.0f) h = 0.0f;
+    return sqrtf(h * h + v * v);
+}
+
+// an enemy's death puff, with its coins
+static void blast_slay(struct Object *obj) {
+    struct Object *saved = gCurrentObject;
+    gCurrentObject = obj;
+    if (bhv_is(obj, bhvSmallBully) || bhv_is(obj, bhvSmallChillBully)) {
+        // the big bully comes out once its minions are gone
+        if (obj->oBullySubtype == BULLY_STYPE_MINION && obj->parentObj != NULL) {
+            obj->parentObj->oBullyKBTimerAndMinionKOCounter++;
+        }
+        if (obj->oNumLootCoins <= 0) obj->oNumLootCoins = 1; // as from the lava
+    }
+    spawn_mist_particles_with_sound(SOUND_OBJ_DEFAULT_DEATH);
+    obj_spawn_loot_yellow_coins(obj, obj->oNumLootCoins, 20.0f);
+    obj_mark_for_deletion(obj);
+    gCurrentObject = saved;
+}
+
+static void blast_mob(struct Object *obj) {
+    if (bhv_is(obj, bhvBobomb)) {
+        obj->oInteractStatus |= INT_STATUS_INTERACTED | INT_STATUS_TOUCHED_BOB_OMB; // it goes off too
+    } else if (bhv_is(obj, bhvSmallWhomp)) {
+        if (obj->oAction != 8) { // its death, with the coins of a ground pound
+            obj->oNumLootCoins = 5;
+            obj_spawn_loot_yellow_coins(obj, 5, 20.0f);
+            obj->oAction = 8;
+        }
+    } else if (dies_at_once(obj)) {
+        blast_slay(obj);
+    } else {
+        attack_object(obj, FPV_INT_KICK);
+        if (sVictimCount < MAX_BLAST_VICTIMS) {
+            sVictims[sVictimCount] = obj;
+            sVictimBhv[sVictimCount++] = obj->behavior;
+        }
+    }
+}
+
+static void blast_boss(struct Object *obj, Vec3f p, f32 dist) {
+    struct Object *saved = gCurrentObject;
+    gCurrentObject = obj;
+    s32 a = obj->oAction;
+    if (bhv_is(obj, bhvKingBobomb)) {
+        // as when he lands after a throw
+        if ((a == 1 || a == 2) && obj->oHealth > 0) {
+            obj->oHealth--;
+            obj->oForwardVel = 0.0f;
+            obj->oVelY = 0.0f;
+            cur_obj_play_sound_2(SOUND_OBJ_KING_BOBOMB);
+            obj->oAction = obj->oHealth ? 6 : 7;
+        }
+    } else if (bhv_is(obj, bhvWhompKingBoss)) {
+        // as a ground pound on his back
+        if (a >= 1 && a <= 7 && obj->oHealth > 0) {
+            obj->oHealth--;
+            cur_obj_play_sound_2(SOUND_OBJ2_WHOMP_SOUND_SHORT);
+            cur_obj_play_sound_2(SOUND_OBJ_KING_WHOMP_DEATH);
+            if (obj->oHealth == 0) {
+                obj->oAction = 8;
+            } else {
+                spawn_mist_particles_variable(0, 0, 100.0f);
+                spawn_triangle_break_particles(20, 138, 3.0f, 4);
+            }
+        }
+    } else if (bhv_is(obj, bhvWigglerHead)) {
+        // as a stomp, while he can be stomped
+        if (a == WIGGLER_ACT_WALK && obj->oTimer >= 60 && obj->oHealth > 1) {
+            attack_object(obj, FPV_INT_GROUND_POUND);
+        }
+    } else if (bhv_is(obj, bhvEyerokHand)) {
+        // as a punch in the eye (eyerok_hand_check_attacked), from any side
+        struct Object *boss = obj->parentObj;
+        if (boss != NULL && boss->oAction == EYEROK_BOSS_ACT_FIGHT && obj->oHealth > 1 && a != EYEROK_HAND_ACT_SLEEP
+            && a != EYEROK_HAND_ACT_ATTACKED && a != EYEROK_HAND_ACT_RECOVER && a != EYEROK_HAND_ACT_BECOME_ACTIVE
+            && a != EYEROK_HAND_ACT_DIE) {
+            cur_obj_play_sound_2(SOUND_OBJ2_EYEROK_SOUND_SHORT);
+            if (--obj->oHealth >= 2) {
+                obj->oAction = EYEROK_HAND_ACT_ATTACKED;
+                obj->oVelY = 30.0f;
+            } else {
+                boss->oEyerokBossNumHands -= 1;
+                obj->oAction = EYEROK_HAND_ACT_DIE;
+                obj->oVelY = 50.0f;
+            }
+            obj->oForwardVel *= 0.2f;
+            obj->oMoveAngleYaw = obj->oFaceAngleYaw + 0x8000;
+            obj->oMoveFlags = 0;
+            obj->oGravity = -4.0f;
+            obj->oAnimState = 3;
+        }
+    } else if (bhv_is(obj, bhvBowser)) {
+        // as one of his mines; not while he jumps onto the stage, talks, teleports or is down
+        if (obj->oHealth > 0 && obj->oHeldState == HELD_FREE && a != 2 && a != 4 && a != 5 && a != 6 && a != 12
+            && a != 16) {
+            obj->oHealth--;
+            obj->oAction = obj->oHealth <= 0 ? 4 : 12;
+        }
+    } else if (bhv_is(obj, bhvGhostHuntBigBoo) || bhv_is(obj, bhvMerryGoRoundBigBoo)
+               || bhv_is(obj, bhvBalconyBigBoo)) {
+        if (a == 1) attack_object(obj, FPV_INT_KICK); // a punch: one of his three hits
+    } else if (a != BULLY_ACT_LAVA_DEATH && a != BULLY_ACT_DEATH_PLANE_DEATH) {
+        // big bullies: blown away, into the lava if it's close
+        obj->oMoveAngleYaw = atan2s(obj->oPosZ - p[2], obj->oPosX - p[0]);
+        obj->oForwardVel = 30.0f + 70.0f * (1.0f - dist / BLAST_RADIUS);
+        obj->oVelY = 30.0f;
+        obj->oInteractStatus |= INT_STATUS_INTERACTED;
+    }
+    gCurrentObject = saved;
+}
+
+static void blast(Vec3f p) {
+    sVictimTimer = 0;
+    sVictimLevel = gCurrLevelNum;
+    sVictimArea = gCurrAreaIndex;
+    for (int i = 0; i < OBJECT_POOL_CAPACITY; i++) {
+        struct Object *obj = &gObjectPool[i];
+        if (!(obj->activeFlags & ACTIVE_FLAG_ACTIVE) || obj == sDroneObj || obj == gMarioObject) continue;
+        s32 boss = is_boss(obj);
+        if (!boss && (obj->oIntangibleTimer != 0 || !is_mob(obj))) continue;
+        f32 d = blast_distance(obj, p);
+        if (d > BLAST_RADIUS) continue;
+        test_log("blast: %s bhv %p action %d health %d at %.0f", boss ? "boss" : "enemy", (void *) obj->behavior,
+                 obj->oAction, obj->oHealth, d);
+        if (boss) {
+            blast_boss(obj, p, d);
+        } else {
+            blast_mob(obj);
+        }
+    }
+}
+
+// enemies the attack didn't defeat (still tangible: dying enemies aren't) are slain
+static void finish_victims(void) {
+    if (sVictimCount == 0) return;
+    if (gCurrLevelNum != sVictimLevel || gCurrAreaIndex != sVictimArea) {
+        sVictimCount = 0;
+        return;
+    }
+    if (++sVictimTimer < BLAST_FINISH_FRAMES) return;
+    for (u32 i = 0; i < sVictimCount; i++) {
+        struct Object *obj = sVictims[i];
+        if ((obj->activeFlags & ACTIVE_FLAG_ACTIVE) && obj->behavior == sVictimBhv[i] && obj->oIntangibleTimer == 0) {
+            test_log("blast: finishing off bhv %p", (void *) obj->behavior);
+            blast_slay(obj);
+        }
+    }
+    sVictimCount = 0;
+}
+
+// a burst of the game's explosions: one at the blast, then a ring around it
+static void blast_effects(u32 frame) {
+    static const s8 ring[2][2][2] = { { { 1, 0 }, { -1, 0 } }, { { 0, 1 }, { 0, -1 } } };
+    if (gMarioObject == NULL) return;
+    if (frame == 0) {
+        spawn_object_abs_with_rot(gMarioObject, 0, MODEL_EXPLOSION, bhvExplosion, sBoomPos[0], sBoomPos[1],
+                                  sBoomPos[2], 0, 0, 0);
+    } else if (frame == 3 || frame == 6) {
+        for (int i = 0; i < 2; i++) {
+            const s8 *d = ring[frame / 6][i];
+            spawn_object_abs_with_rot(gMarioObject, 0, MODEL_EXPLOSION, bhvExplosion, sBoomPos[0] + d[0] * 130.0f,
+                                      sBoomPos[1] + 60.0f, sBoomPos[2] + d[1] * 130.0f, 0, 0, 0);
+        }
+    }
+}
+#endif
+
 static void drone_interactions(Vec3f a, Vec3f b, f32 speed) {
     struct MarioState *m = gMarioState;
     for (int i = 0; i < OBJECT_POOL_CAPACITY; i++) {
@@ -777,8 +1026,21 @@ static void drone_interactions(Vec3f a, Vec3f b, f32 speed) {
         s32 bobomb = o->behavior == segmented_to_virtual(bhvBobomb);
         u32 enemyTypes = INTERACT_BOUNCE_TOP | INTERACT_BOUNCE_TOP2 | INTERACT_HIT_FROM_BELOW | INTERACT_KOOPA
                          | INTERACT_BULLY | INTERACT_BREAKABLE | INTERACT_MR_BLIZZARD;
-        if (!(type & (INTERACT_COIN | INTERACT_STAR_OR_KEY | enemyTypes)) && !oneUp && !bobomb) continue;
+#ifdef LIBFPV_KAMIKAZE
+        // contact fuse: a live warhead goes off on any enemy
+        s32 target = sWarhead.warhead == FPV_WARHEAD_ARMED && (is_mob(o) || is_boss(o));
+#else
+        s32 target = FALSE;
+#endif
+        if (!(type & (INTERACT_COIN | INTERACT_STAR_OR_KEY | enemyTypes)) && !oneUp && !bobomb && !target) continue;
         if (!touches(o, a, b)) continue;
+#ifdef LIBFPV_KAMIKAZE
+        if (target) {
+            test_log("drone hit an enemy (bhv %p) with a live warhead", (void *) o->behavior);
+            fpv_kamikaze_detonate(sDrone, 0);
+            return;
+        }
+#endif
 
         if (sTestLevel) test_log("drone touched object bhv %p type 0x%x at %.0f %.0f %.0f speed %.0f", (void *) o->behavior, type,
                  o->oPosX, o->oPosY, o->oPosZ, speed);
@@ -847,6 +1109,10 @@ void fpv_sm64_init(void) {
         sTestPilot = strstr(test, "pilot") != NULL;
         if (sTestPilot) sTestCam = CAM_CHASE; // no lens pass or OSD
         if (sTestPilot && strstr(test, "pilot=")) sTestPilotYaw = atof(strstr(test, "pilot=") + 6) * (3.14159265f / 180.0f);
+#ifdef LIBFPV_KAMIKAZE
+        sTestKamikaze = strstr(test, "kamikaze") != NULL;
+        if (sTestKamikaze) configFpvBoomEnding = strstr(test, "cutscene") != NULL;
+#endif
         test_log("fpv test: level %d cam %d", sTestLevel, sTestCam);
     }
     printf("fpv: libfpv %s ready, data in %s\n", fpv_version_string(), dir);
@@ -889,7 +1155,11 @@ static void update_drone_object(void) {
     // geo_process_object consumes and clears throwMatrix every frame
     sDroneObj->header.gfx.throwMatrix = &sDroneMtx;
     vec3f_set(sDroneObj->header.gfx.scale, 0.1f, 0.1f, 0.1f);
-    if (sCamMode == CAM_FPV) {
+    s32 hidden = sCamMode == CAM_FPV;
+#ifdef LIBFPV_KAMIKAZE
+    hidden = hidden || sBoom != BOOM_NONE || (sFrame.flags & FPV_DRONE_DETONATED); // blown up
+#endif
+    if (hidden) {
         sDroneObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
     } else {
         sDroneObj->header.gfx.node.flags &= ~GRAPH_RENDER_INVISIBLE;
@@ -968,6 +1238,13 @@ static void deploy(struct MarioState *m) {
         sDroneObj->oFlags &= ~OBJ_FLAG_UPDATE_GFX_POS_AND_ANGLE;
     }
     create_water();
+#ifdef LIBFPV_KAMIKAZE
+    fpv_detonation d;
+    d.struct_size = sizeof(d);
+    while (fpv_kamikaze_poll_detonation(&d)) d.struct_size = sizeof(d); // the previous drone's
+    memset(&sWarhead, 0, sizeof(sWarhead));
+    sBoom = BOOM_NONE;
+#endif
 
     sActive = TRUE;
     sCamMode = CAM_FPV;
@@ -994,6 +1271,9 @@ static void recall(void) {
     sDroneObj = NULL;
     sActive = FALSE;
     sHaveFrame = FALSE;
+#ifdef LIBFPV_KAMIKAZE
+    sBoom = BOOM_NONE;
+#endif
 }
 
 s32 fpv_sm64_is_active(void) {
@@ -1004,8 +1284,17 @@ s32 fpv_sm64_camera_active(void) {
     return sActive && sHaveFrame;
 }
 
+// the pilot's goggles are on screen: the FPV camera, or the static after the blast
+static s32 goggles_view(void) {
+    if (!sActive || !sHaveFrame) return FALSE;
+#ifdef LIBFPV_KAMIKAZE
+    if (sBoom != BOOM_NONE) return sBoom == BOOM_SIGNAL_LOST;
+#endif
+    return sCamMode == CAM_FPV;
+}
+
 s32 fpv_sm64_osd_visible(void) {
-    return sActive && sHaveFrame && sCamMode == CAM_FPV;
+    return goggles_view();
 }
 
 s32 fpv_sm64_ui_hidden(void) {
@@ -1024,7 +1313,7 @@ void fpv_sm64_filter_pad(OSContPad *pad) {
         } else if (!sActive && sTestLevelFrames >= 45 && sTestLevelFrames % 45 == 0 && sTestDeploys < 2) {
             pad->ext_button |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT;
             sTestDeploys++;
-        } else if (sActive && sTestDeploys == 1 && sTestTime > 10.0f) {
+        } else if (sActive && sTestDeploys == 1 && sTestTime > 10.0f && !sTestKamikaze) {
             pad->ext_button |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT; // recall, then deploy again
             test_log("test: recalling the drone");
         }
@@ -1063,12 +1352,18 @@ static void test_update(void) {
     if (sTestOverlay && sTestDeploys == 1) fpv_overlay_set_open(sTestTime > 3.0f && sTestTime < 6.0f);
     // arm, then hold ~2.5 m above the ground and cruise forward (angle mode)
     float t = sTestTime, ch[FPV_CHANNEL_COUNT] = { 0, 0, -1, 0, -1, 1, -1, -1, -1, -1 };
+    for (int i = 10; i < FPV_CHANNEL_COUNT; i++) ch[i] = -1; // kamikaze builds: bomb arm and explode off
     if (t > 0.5f) ch[4] = 1;
+#ifdef LIBFPV_KAMIKAZE
+    // bomb arm switch on in the air: live after the arming delay (3 s), before the Goomba
+    if (sTestKamikaze && sTestDeploys == 1 && t > 2.0f) ch[10] = 1;
+#endif
     if (sTestClean && t > 6.0f) ch[9] = 1;
     if (t > 2.5f) ch[1] = 0.35f;
     if (t > 1.0f) {
         // after 5 s fly low (~0.5 m) through a coin line and into a Goomba spawned ahead
-        float target = (sTestDive && t > 9.0f) ? -300.0f : t > 5.0f ? 20.0f : 250.0f;
+        // (a live warhead goes off on the ground: 1 m with one)
+        float target = (sTestDive && t > 9.0f) ? -300.0f : t > 5.0f ? (sTestKamikaze ? 100.0f : 20.0f) : 250.0f;
         float alt = sFrame.altitude < 0.0f ? target : sFrame.altitude;
         float thr = -0.45f + 0.006f * (target - alt) - 0.003f * sFrame.velocity[1];
         ch[2] = thr < -1.0f ? -1.0f : thr > 0.6f ? 0.6f : thr;
@@ -1127,6 +1422,11 @@ static void test_update(void) {
                  sFrame.motors[2].prop_damage * 100.0f, sFrame.motors[3].prop_damage * 100.0f, sFrame.position[0], sFrame.position[1], sFrame.position[2], sFrame.speed_kmh, sFrame.altitude,
                  sFrame.flags, sFrame.arming_disable_text, sFrame.impact_count, gMarioState->numCoins,
                  sFrame.video.noise, solids);
+#ifdef LIBFPV_KAMIKAZE
+        test_log("warhead %d (%.1f s) flags 0x%x payload %.0f g of %.0f g, detonations %u, ending %d frame %u",
+                 sWarhead.warhead, sWarhead.arming_remaining, sWarhead.flags, sWarhead.payload_mass * 1000.0f,
+                 sWarhead.total_mass * 1000.0f, sDetonations, sBoom, sBoomFrames);
+#endif
         if (sTestClean) test_log("ui hidden %d, fov %.1f (aspect %.2f) -> %.1f at %ux%u", fpv_sm64_ui_hidden(),
                                  sFrame.camera.fov_y_degrees, sFrame.camera.aspect_hint, camera_fov(&sFrame.camera),
                                  gfx_current_dimensions.width, gfx_current_dimensions.height);
@@ -1140,17 +1440,64 @@ static u16 overlay_actions(void) {
         fpv_overlay_set_action(ACTION_RESET, sActive ? "Repair and respawn at the launch point" : NULL);
         fpv_overlay_set_action(ACTION_CAMERA, sActive ? "Camera: FPV / chase / line of sight" : NULL);
     }
+#ifdef LIBFPV_KAMIKAZE
+    static s32 endingShown = -1;
+    if (endingShown != (s32) configFpvBoomEnding) {
+        endingShown = configFpvBoomEnding;
+        fpv_overlay_set_action(ACTION_ENDING, configFpvBoomEnding ? "After the explosion: cutscene (click for signal lost)"
+                                                                  : "After the explosion: signal lost (click for cutscene)");
+    }
+#endif
     u16 pressed = 0;
     for (uint32_t id; (id = fpv_overlay_poll_action()) != 0;) {
         if (id == ACTION_TOGGLE) pressed |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT;
         if (id == ACTION_RESET) pressed |= FPV_BTN_RESET >> FPV_BTN_SHIFT;
         if (id == ACTION_CAMERA) pressed |= FPV_BTN_CAMERA >> FPV_BTN_SHIFT;
+        if (id == ACTION_ENDING) configFpvBoomEnding = !configFpvBoomEnding;
     }
     return pressed;
 }
 
+#ifdef LIBFPV_KAMIKAZE
+static void boom_camera_start(void);
+
+// detonations, and the ending after one; TRUE once Mario has taken over
+static s32 kamikaze_update(void) {
+    memset(&sWarhead, 0, sizeof(sWarhead));
+    sWarhead.struct_size = sizeof(sWarhead);
+    fpv_kamikaze_get_state(sDrone, &sWarhead);
+    fpv_detonation d;
+    memset(&d, 0, sizeof(d));
+    d.struct_size = sizeof(d);
+    while (fpv_kamikaze_poll_detonation(&d)) {
+        sDetonations++;
+        vec3f_set(sBoomPos, d.position[0], d.position[1], d.position[2]);
+        test_log("BOOM (cause %d) at %.0f %.0f %.0f, %.0f km/h, object %u", d.cause, d.position[0], d.position[1],
+                 d.position[2], sqrtf(d.velocity[0] * d.velocity[0] + d.velocity[1] * d.velocity[1]
+                                      + d.velocity[2] * d.velocity[2]) * 0.036f, d.object_id);
+        blast(sBoomPos);
+        sBoom = configFpvBoomEnding ? BOOM_CUTSCENE : BOOM_SIGNAL_LOST;
+        sBoomFrames = 0;
+        sBoomTime = sTime;
+        if (sBoom == BOOM_CUTSCENE) boom_camera_start();
+        d.struct_size = sizeof(d);
+    }
+    if (sBoom == BOOM_NONE) return FALSE;
+    blast_effects(sBoomFrames);
+    if (++sBoomFrames >= BOOM_ENDING_FRAMES) {
+        test_log("kamikaze: ending %d over, Mario takes over", sBoom);
+        recall();
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
+
 void fpv_sm64_update(void) {
     if (!sInited) return;
+#ifdef LIBFPV_KAMIKAZE
+    finish_victims();
+#endif
     test_update();
     struct MarioState *m = gMarioState;
     u16 pressed = sPadPressed | overlay_actions();
@@ -1177,13 +1524,19 @@ void fpv_sm64_update(void) {
     }
 
     if (pressed & (FPV_BTN_RESET >> FPV_BTN_SHIFT)) {
-        fpv_drone_repair(sDrone);
+        fpv_drone_repair(sDrone); // kamikaze builds: a new, safe warhead
         fpv_drone_reset(sDrone, sSpawnPos, sSpawnRot);
+#ifdef LIBFPV_KAMIKAZE
+        sBoom = BOOM_NONE; // the next drone, straight away
+#endif
     }
     if (pressed & (FPV_BTN_CAMERA >> FPV_BTN_SHIFT)) {
         sCamMode = (sCamMode + 1) % CAM_COUNT;
         play_sound(SOUND_MENU_CHANGE_SELECT, gDefaultSoundArgs);
     }
+#ifdef LIBFPV_KAMIKAZE
+    if (kamikaze_update()) return;
+#endif
 
     fpv_gps_set_home(m->pos); // he can still be carried by a platform
     sync_solids();
@@ -1196,7 +1549,11 @@ void fpv_sm64_update(void) {
     f32 speed = sqrtf(sFrame.velocity[0] * sFrame.velocity[0] + sFrame.velocity[1] * sFrame.velocity[1]
                       + sFrame.velocity[2] * sFrame.velocity[2]);
     f32 dx = cur[0] - sPrevPos[0], dy = cur[1] - sPrevPos[1], dz = cur[2] - sPrevPos[2];
-    if (dx * dx + dy * dy + dz * dz < 1000.0f * 1000.0f) { // skip respawn teleports
+    s32 wrecked = FALSE;
+#ifdef LIBFPV_KAMIKAZE
+    wrecked = sBoom != BOOM_NONE || (sFrame.flags & FPV_DRONE_DETONATED);
+#endif
+    if (dx * dx + dy * dy + dz * dz < 1000.0f * 1000.0f && !wrecked) { // skip respawn teleports
         drone_interactions(sPrevPos, cur, speed);
     }
     vec3f_copy(sPrevPos, cur);
@@ -1274,6 +1631,24 @@ s32 fpv_sm64_room_position(Vec3f pos) {
 
 // --- camera ------------------------------------------------------------------------------------
 
+// a level camera at its position, looking at target
+static void look_at(fpv_camera *c, const Vec3f target) {
+    f32 len = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        c->forward[i] = target[i] - c->position[i];
+        len += c->forward[i] * c->forward[i];
+    }
+    len = sqrtf(len);
+    for (int i = 0; i < 3; i++) c->forward[i] /= len;
+    // up = (right x forward) with right = forward x world up
+    f32 r[3] = { -c->forward[2], 0.0f, c->forward[0] };
+    c->up[0] = r[1] * c->forward[2] - r[2] * c->forward[1];
+    c->up[1] = r[2] * c->forward[0] - r[0] * c->forward[2];
+    c->up[2] = r[0] * c->forward[1] - r[1] * c->forward[0];
+    len = sqrtf(c->up[0] * c->up[0] + c->up[1] * c->up[1] + c->up[2] * c->up[2]);
+    for (int i = 0; i < 3; i++) c->up[i] /= len;
+}
+
 // self test: in front of Mario, looking at his hands
 static const fpv_camera *pilot_test_camera(void) {
     static fpv_camera c;
@@ -1283,28 +1658,62 @@ static const fpv_camera *pilot_test_camera(void) {
     c.position[0] = target[0] + sinf(yaw) * 160.0f;
     c.position[1] = target[1] + 40.0f;
     c.position[2] = target[2] + cosf(yaw) * 160.0f;
-    f32 len = 0.0f;
-    for (int i = 0; i < 3; i++) {
-        c.forward[i] = target[i] - c.position[i];
-        len += c.forward[i] * c.forward[i];
-    }
-    len = sqrtf(len);
-    for (int i = 0; i < 3; i++) c.forward[i] /= len;
-    // up = (right x forward) with right = forward x world up
-    f32 r[3] = { -c.forward[2], 0.0f, c.forward[0] };
-    c.up[0] = r[1] * c.forward[2] - r[2] * c.forward[1];
-    c.up[1] = r[2] * c.forward[0] - r[0] * c.forward[2];
-    c.up[2] = r[0] * c.forward[1] - r[1] * c.forward[0];
-    len = sqrtf(c.up[0] * c.up[0] + c.up[1] * c.up[1] + c.up[2] * c.up[2]);
-    for (int i = 0; i < 3; i++) c.up[i] /= len;
+    look_at(&c, target);
     c.fov_y_degrees = 45.0f;
     c.near_plane = 10.0f;
     return &c;
 }
 
+#ifdef LIBFPV_KAMIKAZE
+// the cutscene: on the pilot's side of the blast, up to 9 m back and 3.5 m up
+// (short of walls), turning slowly around it
+#define BOOM_CAM_BACK 900.0f
+#define BOOM_CAM_UP 350.0f
+
+static void boom_camera_start(void) {
+    struct MarioState *m = gMarioState;
+    f32 dx = m->pos[0] - sBoomPos[0], dz = m->pos[2] - sBoomPos[2];
+    sBoomCamYaw = dx * dx + dz * dz > 1.0f ? atan2f(dx, dz) : 0.0f;
+    Vec3f orig = { sBoomPos[0], sBoomPos[1] + 50.0f, sBoomPos[2] };
+    Vec3f dir = { sinf(sBoomCamYaw) * BOOM_CAM_BACK, BOOM_CAM_UP, cosf(sBoomCamYaw) * BOOM_CAM_BACK };
+    struct Surface *surf = NULL;
+    Vec3f hit;
+    find_surface_on_ray(orig, dir, &surf, hit);
+    sBoomCamReach = 1.0f;
+    if (surf != NULL) {
+        f32 len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        f32 hx = hit[0] - orig[0], hy = hit[1] - orig[1], hz = hit[2] - orig[2];
+        sBoomCamReach = (sqrtf(hx * hx + hy * hy + hz * hz) - 40.0f) / len;
+        if (sBoomCamReach < 0.25f) sBoomCamReach = 0.25f;
+    }
+}
+
+static const fpv_camera *boom_camera(void) {
+    static fpv_camera c;
+    f32 t = sTime - sBoomTime;
+    f32 yaw = sBoomCamYaw + 0.06f * t;
+    c.position[0] = sBoomPos[0] + sinf(yaw) * BOOM_CAM_BACK * sBoomCamReach;
+    c.position[1] = sBoomPos[1] + 50.0f + BOOM_CAM_UP * sBoomCamReach;
+    c.position[2] = sBoomPos[2] + cosf(yaw) * BOOM_CAM_BACK * sBoomCamReach;
+    // the blast shakes it for a moment
+    f32 shake = t < 0.8f ? (0.8f - t) * 20.0f : 0.0f;
+    c.position[0] += cosf(t * 47.0f) * shake;
+    c.position[1] += sinf(t * 61.0f) * shake;
+    Vec3f target = { sBoomPos[0], sBoomPos[1] + 60.0f, sBoomPos[2] };
+    look_at(&c, target);
+    c.fov_y_degrees = 50.0f;
+    c.near_plane = 10.0f;
+    return &c;
+}
+#endif
+
 static const fpv_camera *active_camera(void) {
     if (!sActive || !sHaveFrame) return NULL;
     if (sTestPilot) return pilot_test_camera();
+#ifdef LIBFPV_KAMIKAZE
+    if (sBoom == BOOM_SIGNAL_LOST) return &sFrame.camera;
+    if (sBoom == BOOM_CUTSCENE) return boom_camera();
+#endif
     switch (sCamMode) {
         case CAM_CHASE: return &sFrame.chase_camera;
         case CAM_LOS: return &sFrame.los_camera;
@@ -1388,10 +1797,14 @@ void fpv_sm64_gfx_scene_done(int width, int height) {
 #ifndef RAPI_GL
     return;
 #endif
-    if (!sActive || !sHaveFrame || sCamMode != CAM_FPV) return;
+    if (!goggles_view()) return;
     const fpv_camera *c = &sFrame.camera;
+    float lost = 0.0f;
+#ifdef LIBFPV_KAMIKAZE
+    if (sBoom == BOOM_SIGNAL_LOST) lost = 1.0f; // the video transmitter went up with the drone
+#endif
     gfx_fpv_gl_postprocess(width, height, c->distortion_k1, c->distortion_k2, c->distortion_zoom,
-                           sFrame.video.noise, sFrame.video.breakup, sFrame.video.is_digital ? 0.0f : 1.0f, sTime);
+                           sFrame.video.noise, sFrame.video.breakup, sFrame.video.is_digital ? 0.0f : 1.0f, lost, sTime);
 }
 
 #ifdef RAPI_GL
@@ -1407,7 +1820,8 @@ void fpv_sm64_gfx_frame_done(int width, int height) {
     u64 now = now_ticks();
     float dt = last ? (float) ((double) (now - last) / (double) SDL_GetPerformanceFrequency()) : 1.0f / 30.0f;
     last = now;
-    if (sActive && sHaveFrame && sCamMode == CAM_FPV) {
+    // (after the blast, libfpv's OSD shows "SIGNAL LOST" over the static)
+    if (goggles_view()) {
         gfx_fpv_gl_draw(fpv_osd_draw_data(&sFrame, (float) width, (float) height, FPV_OSD_STYLE_ANALOG), width,
                         height);
     }
@@ -1433,6 +1847,23 @@ void fpv_sm64_gfx_frame_done(int width, int height) {
         test_log("screenshot %s", path);
         marioShot = 1;
     }
+#ifdef LIBFPV_KAMIKAZE
+    // kamikaze test: the ending, then Mario back in control
+    static int boomShot, afterFrames;
+    if (sTestLevel && sBoom != BOOM_NONE && boomShot < 2 && sBoomFrames >= (boomShot ? 60u : 15u)) {
+        char path[SYS_MAX_PATH];
+        snprintf(path, sizeof(path), "%s/fpv_shot_boom%d.bmp", sys_user_path(), boomShot++);
+        gfx_fpv_gl_save_bmp(path, width, height);
+        test_log("screenshot %s", path);
+    }
+    if (sTestLevel && sDetonations > 0 && !sActive && afterFrames >= 0 && ++afterFrames > 5) {
+        char path[SYS_MAX_PATH];
+        snprintf(path, sizeof(path), "%s/fpv_shot_after.bmp", sys_user_path());
+        gfx_fpv_gl_save_bmp(path, width, height);
+        test_log("screenshot %s, mario action 0x%x", path, gMarioState->action);
+        afterFrames = -1;
+    }
+#endif
     if (sTestLevel && sActive && shotIdx < 4 && sTestTime >= shots[shotIdx]) {
         char path[SYS_MAX_PATH];
         snprintf(path, sizeof(path), "%s/fpv_shot%d.bmp", sys_user_path(), shotIdx);
