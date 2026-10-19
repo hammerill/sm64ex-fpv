@@ -62,11 +62,12 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
   close). Mario is hurt if he stands in the explosion itself.
 - **After the explosion.** Options > Controls > "After the Explosion" (or the
   button in F8 > Fly) picks the ending. **Signal Lost** (default) keeps the
-  goggles on screen for 1 s: static with libfpv's `SIGNAL LOST`, and none of
-  the game's HUD over it, like a real lost feed. Then Mario takes over again.
-  **Arcade** shows the blast from the pilot's side, short of walls, for 1 s,
-  then a new drone takes off from the launch point. Drone Reset gives a new
-  drone at once instead, and Drone Toggle recalls it.
+  goggles on screen: static with libfpv's `SIGNAL LOST`, and none of the
+  game's HUD over it, like a real lost feed. Then Mario takes over again.
+  **Arcade** shows the blast from the pilot's side, short of walls, then a
+  new drone takes off from the launch point. Both last 3 s by default
+  (F8 > Fly > "Ending", saved by libfpv). Drone Reset gives a new drone at
+  once instead, and Drone Toggle recalls it.
 - **Payload, arming delay and fuse.** The warhead is real weight (by default
   60 % of the quad). F8 > Fly tunes it, the arming delay (none by default) and
   the impact fuse.

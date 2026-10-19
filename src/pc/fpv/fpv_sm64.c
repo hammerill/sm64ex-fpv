@@ -121,11 +121,11 @@ static Vec3f sAnchorPos, sAnchorGfxPos; // Mario's object's own position meanwhi
 #ifdef LIBFPV_KAMIKAZE
 // After the blast (Options > Controls > After the Explosion): the static of the lost
 // video link with "SIGNAL LOST", then Mario takes over; or arcade, a cutscene of the
-// blast, then a new drone at the launch point.
-#define BOOM_ENDING_FRAMES 30 // 1 s
+// blast, then a new drone at the launch point. Its length is the player's (F8 > Fly, "Ending").
 enum BoomEnding { BOOM_NONE, BOOM_SIGNAL_LOST, BOOM_ARCADE };
 static s32 sBoom;
 static u32 sBoomFrames;     // game frames since the blast
+static u32 sBoomEndFrames;  // game frames the ending lasts
 static float sBoomTime;     // sTime of the blast
 static Vec3f sBoomPos;
 static f32 sBoomCamYaw, sBoomCamReach;
@@ -1523,12 +1523,18 @@ static s32 kamikaze_update(void) {
         sBoom = configFpvBoomEnding ? BOOM_ARCADE : BOOM_SIGNAL_LOST;
         sBoomFrames = 0;
         sBoomTime = sTime;
+        fpv_kamikaze_config kc;
+        memset(&kc, 0, sizeof(kc));
+        kc.struct_size = sizeof(kc);
+        kc.ending_duration = 3.0f;
+        fpv_kamikaze_get_config(&kc);
+        sBoomEndFrames = (u32)(kc.ending_duration * 30.0f + 0.5f);
         if (sBoom == BOOM_ARCADE) boom_camera_start();
         d.struct_size = sizeof(d);
     }
     if (sBoom == BOOM_NONE) return FALSE;
     blast_effects(sBoomFrames);
-    if (++sBoomFrames >= BOOM_ENDING_FRAMES) {
+    if (++sBoomFrames >= sBoomEndFrames) {
         if (sBoom == BOOM_ARCADE) {
             test_log("kamikaze: ending %d over, a new drone", sBoom);
             fpv_drone_repair(sDrone); // a new, safe warhead
