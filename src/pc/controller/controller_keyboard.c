@@ -78,6 +78,7 @@ static void keyboard_bindkeys(void) {
     keyboard_add_binds(FPV_BTN_TOGGLE, configKeyFpvToggle);
     keyboard_add_binds(FPV_BTN_RESET,  configKeyFpvReset);
     keyboard_add_binds(FPV_BTN_CAMERA, configKeyFpvCamera);
+    keyboard_add_binds(FPV_BTN_HERE,   configKeyFpvHere);
 }
 
 static void keyboard_init(void) {

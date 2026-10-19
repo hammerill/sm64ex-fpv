@@ -89,6 +89,7 @@ static void controller_sdl_bind(void) {
     controller_add_binds(FPV_BTN_TOGGLE, configKeyFpvToggle);
     controller_add_binds(FPV_BTN_RESET,  configKeyFpvReset);
     controller_add_binds(FPV_BTN_CAMERA, configKeyFpvCamera);
+    controller_add_binds(FPV_BTN_HERE,   configKeyFpvHere);
 }
 
 static void controller_sdl_init(void) {

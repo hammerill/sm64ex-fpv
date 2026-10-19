@@ -130,6 +130,7 @@ static const u8 bindStr[][32] = {
     { TEXT_BIND_FPV },
     { TEXT_BIND_FPV_RST },
     { TEXT_BIND_FPV_CAM },
+    { TEXT_BIND_FPV_HERE },
 };
 
 #if defined(FPV_DRONE) && defined(LIBFPV_KAMIKAZE)
@@ -270,6 +271,7 @@ static struct Option optsControls[] = {
     DEF_OPT_BIND( bindStr[18], configKeyFpvToggle ),
     DEF_OPT_BIND( bindStr[19], configKeyFpvReset ),
     DEF_OPT_BIND( bindStr[20], configKeyFpvCamera ),
+    DEF_OPT_BIND( bindStr[21], configKeyFpvHere ),
 #if defined(FPV_DRONE) && defined(LIBFPV_KAMIKAZE)
     DEF_OPT_CHOICE( optsFpvStr[0], &configFpvBoomEnding, fpvBoomChoices ),
 #endif

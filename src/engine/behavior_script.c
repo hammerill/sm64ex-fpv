@@ -924,6 +924,11 @@ void cur_obj_update(void) {
     BhvCommandProc bhvCmdProc;
     s32 bhvProcResult;
 
+#ifdef FPV_DRONE
+    // far from Mario, his object stands in at the drone while this object updates
+    fpv_sm64_anchor_begin(gCurrentObject);
+#endif
+
     // Calculate the distance from the object to Mario.
     if (objFlags & OBJ_FLAG_COMPUTE_DIST_TO_MARIO) {
         gCurrentObject->oDistanceToMario = dist_between_objects(gCurrentObject, gMarioObject);
@@ -1020,4 +1025,8 @@ void cur_obj_update(void) {
             }
         }
     }
+
+#ifdef FPV_DRONE
+    fpv_sm64_anchor_end();
+#endif
 }

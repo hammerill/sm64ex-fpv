@@ -19,6 +19,17 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
   boxes are knocked out when you hit them faster than 2 m/s.
 - **Rooms and draw distance.** Both follow the drone, so objects near it are
   drawn even when they are far from Mario.
+- **The world around the drone.** Objects spawn, appear, wake up and aim by
+  their distance to Mario (coin formations, Pokeys, Whomps, Fwoosh clouds...).
+  So, as gtaiv-fpv does with Niko, once the drone is 20 m from Mario his
+  object stands in at the drone while the other objects update, until it is
+  back within 10 m. The level comes alive around the drone, and enemies there
+  go for it. Mario himself stays where he is: enemies can't hurt him at the
+  drone, nobody starts a conversation with the stand-in, and his own dust,
+  splashes and stars stay with him.
+- **Move Mario here.** Y recalls the drone and puts Mario on the ground under
+  it, facing where it faced. Over lava, a death plane, deadly quicksand or the
+  void it buzzes and the flight goes on.
 - **Recall.** The drone is recalled when Mario is hurt badly, dies, starts a
   cutscene, or the level or area changes.
 - **GPS.** Mario is the GPS home point, so the OSD's home arrow and home
@@ -67,11 +78,12 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
 | Deploy / recall the drone | F | Back / Select |
 | Repair and respawn at the launch point | R | D-pad up |
 | Camera: FPV / chase / line of sight | V | D-pad right |
+| Recall the drone and move Mario under it | Y | D-pad down |
 | libfpv overlay (radio setup, presets, rates, camera, Betaflight CLI) | F8 | |
 | Pause | Space (Start) | Start |
 
-All three drone actions can be rebound in Options > Controls ("Drone
-Toggle", "Drone Reset", "Drone Camera").
+All four drone actions can be rebound in Options > Controls ("Drone
+Toggle", "Drone Reset", "Drone Camera", "Move Mario Here").
 
 To fly with the keyboard, Enter arms, W/S sets the throttle, A/D yaws and the
 arrow keys pitch and roll (self-levelling). T toggles turtle mode.
@@ -86,8 +98,8 @@ switch (AUX6). With OSD disable on, the FPV view is clean: the Betaflight OSD
 and the game's HUD and text are hidden. The pause menu and the F8 overlay
 still show. Betaflight Configurator can connect to `ws://localhost:5761`.
 
-F8 > Fly also has buttons to deploy or recall the drone, respawn it and switch
-the camera.
+F8 > Fly also has buttons to deploy or recall the drone, respawn it, switch
+the camera and move Mario under it.
 
 While the drone is up, Mario holds a radio whose sticks follow yours. He watches
 the drone, turns around when it flies behind him, and leans into the turns.
@@ -137,13 +149,15 @@ OSD and the overlay (other renderers tell libfpv there is no lens pass).
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,kamikaze[,arcade]]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,kamikaze[,arcade]]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
 and screenshots to `fpv_shot*.bmp` in the user folder. `clean` turns the OSD
 disable switch on after 6 s. `pilot` films Mario during the flight instead of
 a drone camera, from in front of him or `<degrees>` around him.
+`here` ends the first flight with Move Mario Here instead of a recall. `far`
+moves the first drone 30 m out after 2 s and logs the stand-in.
 `kamikaze` (kamikaze builds) installs the bomb, turns the bomb arm switch on after take-off and
 strikes the Goomba, then plays the signal lost ending and redeploys (or the
 arcade ending with `arcade`, which respawns the drone). It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
@@ -166,10 +180,13 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
   every object collision model while it is tangible.
 - **Culling.** `behavior_script.c`, `surface_load.c` and the room switch in
   `object_helpers.c` cull by the closer of Mario and the drone.
+- **Stand-in.** `cur_obj_update` in `behavior_script.c` moves Mario's object
+  to the drone around each object's update while it follows the drone, and
+  `mario_ready_to_speak` in `mario_actions_cutscene.c` says no meanwhile.
 - **UI.** `area.c` drops the HUD and text labels from the display list while
   the OSD disable switch is on in the FPV view, and over the static after a
   kamikaze blast.
-- **Input.** Three new binds are added to the configuration, the options menu
+- **Input.** Four new binds are added to the configuration, the options menu
   and the keyboard/SDL2 controllers. Window events are forwarded to libfpv in
   `gfx_sdl2.c`.
 - **Audio.** `pc_main.c` mixes in the synthesized motor sound.

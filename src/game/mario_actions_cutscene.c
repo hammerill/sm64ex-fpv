@@ -30,6 +30,9 @@
 #include "thread6.h"
 #include "../../include/libc/stdlib.h"
 #include "pc/pc_main.h"
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
 
 // TODO: put this elsewhere
 enum SaveOption { SAVE_OPT_SAVE_AND_CONTINUE = 1, SAVE_OPT_SAVE_AND_QUIT, SAVE_OPT_SAVE_EXIT_GAME, SAVE_OPT_CONTINUE_DONT_SAVE };
@@ -335,6 +338,11 @@ s32 mario_ready_to_speak(void) {
     u32 actionGroup = gMarioState->action & ACT_GROUP_MASK;
     s32 isReadyToSpeak = FALSE;
 
+#ifdef FPV_DRONE
+    if (fpv_sm64_anchored()) {
+        return FALSE; // the object sees Mario's stand-in at the drone, not Mario
+    }
+#endif
     if ((gMarioState->action == ACT_WAITING_FOR_DIALOG || actionGroup == ACT_GROUP_STATIONARY
          || actionGroup == ACT_GROUP_MOVING)
         && (!(gMarioState->action & (ACT_FLAG_RIDING_SHELL | ACT_FLAG_INVULNERABLE))

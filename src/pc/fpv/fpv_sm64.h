@@ -39,6 +39,12 @@ s32 fpv_sm64_camera_active(void);
 f32 fpv_sm64_cull_distance(struct Object *obj, f32 marioDist);
 // room selection follows the drone; returns TRUE and the position when flying
 s32 fpv_sm64_room_position(Vec3f pos);
+// cur_obj_update: with the drone far from Mario, his object stands in at the drone while obj
+// updates (it spawns, shows and aims by him), as gtaiv-fpv moves Niko with the drone
+void fpv_sm64_anchor_begin(struct Object *obj);
+void fpv_sm64_anchor_end(void);
+// the current object sees the stand-in (nobody talks to it)
+s32 fpv_sm64_anchored(void);
 
 // rendering_graph_node: replaces the game camera while a drone camera is active
 s32 fpv_sm64_view_matrix(Mat4 view, Vec3f pos, Vec3f focus);

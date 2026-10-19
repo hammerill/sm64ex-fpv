@@ -40,6 +40,7 @@ extern unsigned int configKeyStickRight[];
 extern unsigned int configKeyFpvToggle[];
 extern unsigned int configKeyFpvReset[];
 extern unsigned int configKeyFpvCamera[];
+extern unsigned int configKeyFpvHere[];
 extern unsigned int configFpvBoomEnding;
 extern unsigned int configStickDeadzone;
 extern unsigned int configRumbleStrength;

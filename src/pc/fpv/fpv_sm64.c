@@ -74,7 +74,15 @@ u32 attack_object(struct Object *o, s32 interaction);
 
 enum CamMode { CAM_FPV, CAM_CHASE, CAM_LOS, CAM_COUNT };
 // buttons in the overlay's Fly tab (F8), the same as the drone binds
-enum OverlayAction { ACTION_TOGGLE = 1, ACTION_RESET, ACTION_CAMERA, ACTION_ENDING };
+enum OverlayAction { ACTION_TOGGLE = 1, ACTION_RESET, ACTION_CAMERA, ACTION_ENDING, ACTION_HERE };
+
+// Objects spawn, show, wake up and aim by their distance and angle to Mario's object. As
+// gtaiv-fpv streams the world with Niko as an anchor, Mario's object stands in at the drone
+// while the other objects update once the drone is far from him, so the level comes alive
+// around it. Mario stays where he is for everything else: his own update, object collisions
+// (enemies can't hurt him at the drone), the camera and the video link.
+#define ANCHOR_START 2000.0f // 20 m from Mario: the stand-in follows the drone
+#define ANCHOR_STOP 1000.0f  // back within 10 m: Mario himself again
 
 static s32 sInited;
 static s32 sActive;
@@ -104,6 +112,10 @@ static struct Object *sDroneObj;
 static Mat4 sDroneMtx;
 
 static u8 sKeysDown[512];
+
+static s32 sAnchor;              // the stand-in follows the drone this game frame
+static s32 sAnchored;            // Mario's object is at the drone now (inside cur_obj_update)
+static Vec3f sAnchorPos, sAnchorGfxPos; // Mario's object's own position meanwhile
 
 #ifdef LIBFPV_KAMIKAZE
 // After the blast (Options > Controls > After the Explosion): the static of the lost
@@ -140,6 +152,8 @@ static s32 sTestPilot; // look at Mario from the front instead of a drone camera
 static f32 sTestPilotYaw; // pilot=<degrees>: around him, 0 = straight in front
 static u32 sTestDrawnFrames; // displayed frames, for the test's framerate log
 static s32 sTestKamikaze; // kamikaze builds: arm the warhead and strike the Goomba
+static s32 sTestHere; // end the first flight with "Move Mario Here" instead of a recall
+static s32 sTestFar;  // move the first drone 30 m out at 2 s, past where the stand-in follows it
 
 static void test_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 struct fpv_camera;
@@ -1109,6 +1123,8 @@ void fpv_sm64_init(void) {
         sTestDive = strstr(test, "dive") != NULL;
         sTestClean = strstr(test, "clean") != NULL;
         sTestPilot = strstr(test, "pilot") != NULL;
+        sTestHere = strstr(test, "here") != NULL;
+        sTestFar = strstr(test, "far") != NULL;
         if (sTestPilot) sTestCam = CAM_CHASE; // no lens pass or OSD
         if (sTestPilot && strstr(test, "pilot=")) sTestPilotYaw = atof(strstr(test, "pilot=") + 6) * (3.14159265f / 180.0f);
 #ifdef LIBFPV_KAMIKAZE
@@ -1276,6 +1292,7 @@ static void recall(void) {
     sDroneObj = NULL;
     sActive = FALSE;
     sHaveFrame = FALSE;
+    sAnchor = FALSE;
 #ifdef LIBFPV_KAMIKAZE
     sBoom = BOOM_NONE;
 #endif
@@ -1323,8 +1340,9 @@ void fpv_sm64_filter_pad(OSContPad *pad) {
             pad->ext_button |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT;
             sTestDeploys++;
         } else if (sActive && sTestDeploys == 1 && sTestTime > 10.0f && !sTestKamikaze) {
-            pad->ext_button |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT; // recall, then deploy again
-            test_log("test: recalling the drone");
+            // recall (or move Mario under the drone), then deploy again
+            pad->ext_button |= (sTestHere ? FPV_BTN_HERE : FPV_BTN_TOGGLE) >> FPV_BTN_SHIFT;
+            test_log(sTestHere ? "test: moving Mario under the drone" : "test: recalling the drone");
         }
     }
     u16 ext = pad->ext_button;
@@ -1376,6 +1394,20 @@ static void test_update(void) {
         float alt = sFrame.altitude < 0.0f ? target : sFrame.altitude;
         float thr = -0.45f + 0.006f * (target - alt) - 0.003f * sFrame.velocity[1];
         ch[2] = thr < -1.0f ? -1.0f : thr > 0.6f ? 0.6f : thr;
+    }
+    if (sTestFar && sTestDeploys == 1 && t > 2.0f && t < 2.05f) {
+        float far[3] = { sSpawnPos[0] + 3000.0f, sSpawnPos[1] + 300.0f, sSpawnPos[2] };
+        fpv_drone_reset(sDrone, far, sSpawnRot);
+        test_log("test: drone moved 30 m out");
+    }
+    if (sTestFar && sTestLevelFrames % 15 == 0) {
+        int near = 0;
+        for (struct Object *o = (struct Object *) gObjectLists[OBJ_LIST_GENACTOR].next;
+             o != (struct Object *) &gObjectLists[OBJ_LIST_GENACTOR]; o = (struct Object *) o->header.next) {
+            near += o->oDistanceToMario < 2000.0f;
+        }
+        test_log("anchor %d, mario at %.0f %.0f %.0f, enemies within 20 m of mario's object %d", sAnchor,
+                 gMarioState->pos[0], gMarioState->pos[1], gMarioState->pos[2], near);
     }
     static s32 spawned;
     if (t > 5.0f && !spawned) {
@@ -1448,6 +1480,7 @@ static u16 overlay_actions(void) {
         fpv_overlay_set_action(ACTION_TOGGLE, sActive ? "Recall the drone" : "Deploy the drone");
         fpv_overlay_set_action(ACTION_RESET, sActive ? "Repair and respawn at the launch point" : NULL);
         fpv_overlay_set_action(ACTION_CAMERA, sActive ? "Camera: FPV / chase / line of sight" : NULL);
+        fpv_overlay_set_action(ACTION_HERE, sActive ? "Recall the drone and move Mario under it" : NULL);
     }
 #ifdef LIBFPV_KAMIKAZE
     static s32 endingShown = -1;
@@ -1462,6 +1495,7 @@ static u16 overlay_actions(void) {
         if (id == ACTION_TOGGLE) pressed |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT;
         if (id == ACTION_RESET) pressed |= FPV_BTN_RESET >> FPV_BTN_SHIFT;
         if (id == ACTION_CAMERA) pressed |= FPV_BTN_CAMERA >> FPV_BTN_SHIFT;
+        if (id == ACTION_HERE) pressed |= FPV_BTN_HERE >> FPV_BTN_SHIFT;
         if (id == ACTION_ENDING) configFpvBoomEnding = !configFpvBoomEnding;
     }
     return pressed;
@@ -1509,6 +1543,100 @@ static s32 kamikaze_update(void) {
 }
 #endif
 
+static s32 deadly_floor(s16 type) {
+    return type == SURFACE_BURNING || type == SURFACE_DEATH_PLANE || type == SURFACE_DEEP_QUICKSAND
+           || type == SURFACE_INSTANT_QUICKSAND || type == SURFACE_DEEP_MOVING_QUICKSAND
+           || type == SURFACE_INSTANT_MOVING_QUICKSAND;
+}
+
+// "Move Mario Here": recall the drone and put Mario on the ground under it, facing where it
+// faced (gtaiv-fpv's "Move Niko here"). FALSE, and the flight goes on, without a safe floor.
+static s32 move_mario_here(struct MarioState *m) {
+    s32 wrecked = !sHaveFrame;
+#ifdef LIBFPV_KAMIKAZE
+    wrecked = wrecked || sBoom != BOOM_NONE || (sFrame.flags & FPV_DRONE_DETONATED);
+#endif
+    struct Surface *floor = NULL;
+    f32 x = sFrame.position[0], z = sFrame.position[2];
+    f32 y = wrecked ? 0.0f : find_floor(x, sFrame.position[1], z, &floor);
+    if (floor == NULL || deadly_floor(floor->type)) {
+        test_log("move here: no safe floor under %.0f %.0f %.0f", x, sFrame.position[1], z);
+        play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
+        return FALSE;
+    }
+    static const float ahead[3] = { 0.0f, 0.0f, -1.0f }; // the drone's nose at identity
+    float fwd[3];
+    quat_rotate(sFrame.rotation, ahead, fwd);
+    s16 yaw = (fwd[0] * fwd[0] + fwd[2] * fwd[2] > 1e-4f) ? atan2s(fwd[2], fwd[0]) : m->faceAngle[1];
+    Vec3f shift = { x - m->pos[0], y - m->pos[1], z - m->pos[2] };
+
+    recall();
+    vec3f_set(m->pos, x, y, z);
+    vec3f_set(m->vel, 0.0f, 0.0f, 0.0f);
+    m->forwardVel = 0.0f;
+    vec3s_set(m->faceAngle, 0, yaw, 0);
+    m->floor = floor;
+    m->floorHeight = y;
+    set_mario_action(m, ACT_IDLE, 0);
+    struct Object *o = m->marioObj;
+    o->oPosX = x, o->oPosY = y, o->oPosZ = z;
+    vec3f_copy(o->header.gfx.pos, m->pos);
+    vec3s_set(o->header.gfx.angle, 0, yaw, 0);
+    o->header.gfx.prevTimestamp = 0; // no frame blended across the level
+    o->header.gfx.prevShadowPosTimestamp = 0;
+    warp_camera(shift[0], shift[1], shift[2]); // the camera keeps its place relative to him
+    test_log("move here: Mario at %.0f %.0f %.0f yaw %d", x, y, z, yaw);
+    play_sound(SOUND_MENU_CLICK_FILE_SELECT, gDefaultSoundArgs);
+    return TRUE;
+}
+
+// once per game frame: the stand-in follows the drone past ANCHOR_START, until it is back
+// within ANCHOR_STOP
+static void update_anchor(struct MarioState *m) {
+    s32 was = sAnchor;
+    if (!sActive || !sHaveFrame || m->action != ACT_FPV_PILOTING) {
+        sAnchor = FALSE;
+    } else {
+        f32 dx = sFrame.position[0] - m->pos[0], dy = sFrame.position[1] - m->pos[1];
+        f32 dz = sFrame.position[2] - m->pos[2];
+        f32 d = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (d > ANCHOR_START) sAnchor = TRUE;
+        if (d < ANCHOR_STOP) sAnchor = FALSE;
+    }
+    if (sAnchor != was) {
+        test_log("anchor: %s at %.0f %.0f %.0f", sAnchor ? "the stand-in follows the drone" : "back to Mario",
+                 sFrame.position[0], sFrame.position[1], sFrame.position[2]);
+    }
+}
+
+void fpv_sm64_anchor_begin(struct Object *obj) {
+    struct Object *mario = gMarioObject;
+    // his own effects (dust, splashes, the celebration star) stay with him
+    if (!sAnchor || mario == NULL || obj == mario || obj->parentObj == mario
+        || gMarioState->action != ACT_FPV_PILOTING) {
+        return;
+    }
+    sAnchorPos[0] = mario->oPosX, sAnchorPos[1] = mario->oPosY, sAnchorPos[2] = mario->oPosZ;
+    vec3f_copy(sAnchorGfxPos, mario->header.gfx.pos);
+    mario->oPosX = sFrame.position[0];
+    mario->oPosY = sFrame.position[1];
+    mario->oPosZ = sFrame.position[2];
+    vec3f_set(mario->header.gfx.pos, sFrame.position[0], sFrame.position[1], sFrame.position[2]);
+    sAnchored = TRUE;
+}
+
+void fpv_sm64_anchor_end(void) {
+    if (!sAnchored) return;
+    struct Object *mario = gMarioObject;
+    mario->oPosX = sAnchorPos[0], mario->oPosY = sAnchorPos[1], mario->oPosZ = sAnchorPos[2];
+    vec3f_copy(mario->header.gfx.pos, sAnchorGfxPos);
+    sAnchored = FALSE;
+}
+
+s32 fpv_sm64_anchored(void) {
+    return sAnchored;
+}
+
 void fpv_sm64_update(void) {
     if (!sInited) return;
 #ifdef LIBFPV_KAMIKAZE
@@ -1539,6 +1667,7 @@ void fpv_sm64_update(void) {
         if (!sActive) return;
     }
 
+    if ((pressed & (FPV_BTN_HERE >> FPV_BTN_SHIFT)) && move_mario_here(m)) return;
     if (pressed & (FPV_BTN_RESET >> FPV_BTN_SHIFT)) {
         fpv_drone_repair(sDrone); // kamikaze builds: a new, safe warhead
         fpv_drone_reset(sDrone, sSpawnPos, sSpawnRot);
@@ -1555,6 +1684,7 @@ void fpv_sm64_update(void) {
 #endif
 
     fpv_gps_set_home(m->pos); // he can still be carried by a platform
+    update_anchor(m);
     sync_solids();
     update_water();
     // the flight itself is simulated once per displayed frame, in fpv_sm64_frame_tick
@@ -1630,13 +1760,18 @@ s32 fpv_sm64_drone_pose(Mat4 pose) {
 
 // --- culling and rooms ---------------------------------------------------------------------
 
+static f32 dist_to(struct Object *obj, const float *p) {
+    f32 dx = obj->oPosX - p[0], dy = obj->oPosY - p[1], dz = obj->oPosZ - p[2];
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
 f32 fpv_sm64_cull_distance(struct Object *obj, f32 marioDist) {
     if (!sActive || !sHaveFrame) return marioDist;
-    f32 dx = obj->oPosX - sFrame.position[0];
-    f32 dy = obj->oPosY - sFrame.position[1];
-    f32 dz = obj->oPosZ - sFrame.position[2];
-    f32 d = sqrtf(dx * dx + dy * dy + dz * dz);
-    return d < marioDist ? d : marioDist;
+    f32 d = dist_to(obj, sFrame.position);
+    if (d < marioDist) marioDist = d;
+    // marioDist is to the stand-in at the drone: what is around Mario himself stays too
+    if (sAnchored && (d = dist_to(obj, sAnchorPos)) < marioDist) marioDist = d;
+    return marioDist;
 }
 
 s32 fpv_sm64_room_position(Vec3f pos) {
