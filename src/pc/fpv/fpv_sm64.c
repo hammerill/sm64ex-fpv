@@ -92,6 +92,7 @@ static s32 sHaveFrame;
 static s32 sCamMode;
 static u16 sPadPrev, sPadPressed;
 static u64 sLastTick;
+static u64 sMouseTick;          // last mouse motion, click or wheel (0: none yet)
 static float sTime;
 static u32 sUpdateTimer;        // gGlobalTimer of the last game frame that updated the drone
 static float sImpactSpeed;      // hardest impact since the last game frame
@@ -1976,13 +1977,10 @@ void fpv_sm64_gfx_frame_done(int width, int height) {
         gfx_fpv_gl_draw(fpv_osd_draw_data(&sFrame, (float) width, (float) height, FPV_OSD_STYLE_ANALOG), width,
                         height);
     }
-    // the game hides the cursor in fullscreen; the overlay needs it
-    static s32 cursorForOverlay;
-    s32 open = fpv_overlay_is_open();
-    if (open != cursorForOverlay) {
-        SDL_ShowCursor(open || !configWindow.fullscreen ? SDL_ENABLE : SDL_DISABLE);
-        cursorForOverlay = open;
-    }
+    // the game hides the cursor in fullscreen; the overlay needs it. Either way it hides after 3 s still
+    s32 cursor = (fpv_overlay_is_open() || !configWindow.fullscreen) && sMouseTick &&
+                 now - sMouseTick < 3 * SDL_GetPerformanceFrequency();
+    if (cursor != (SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE)) SDL_ShowCursor(cursor ? SDL_ENABLE : SDL_DISABLE);
     fpv_overlay_set_display((float) width, (float) height, height > 900 ? (float) height / 900.0f : 1.0f);
     gfx_fpv_gl_draw(fpv_overlay_render(dt), width, height);
 #ifdef RAPI_GL
@@ -2057,12 +2055,15 @@ void fpv_sm64_key(int fpvKey, int down) {
 }
 
 void fpv_sm64_mouse_move(float x, float y) {
+    sMouseTick = now_ticks();
     if (sInited) fpv_overlay_mouse_move(x, y);
 }
 void fpv_sm64_mouse_button(int button, int down) {
+    sMouseTick = now_ticks();
     if (sInited) fpv_overlay_mouse_button(button, down);
 }
 void fpv_sm64_mouse_wheel(float dx, float dy) {
+    sMouseTick = now_ticks();
     if (sInited) fpv_overlay_mouse_wheel(dx, dy);
 }
 void fpv_sm64_text(const char *utf8) {
