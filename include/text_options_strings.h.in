@@ -81,7 +81,7 @@
 #define TEXT_BIND_FPV_CAM  _("DRONE CAMERA")
 #define TEXT_OPT_FPV_BOOM  _("AFTER THE EXPLOSION")
 #define TEXT_OPT_FPV_LOST  _("SIGNAL LOST")
-#define TEXT_OPT_FPV_CUT   _("CUTSCENE")
+#define TEXT_OPT_FPV_ARC   _("ARCADE")
 
 #define TEXT_OPT_CHEAT1    _("ENABLE CHEATS")
 #define TEXT_OPT_CHEAT2    _("MOONJUMP (PRESS L)")
@@ -152,7 +152,7 @@
 #define TEXT_BIND_FPV_CAM  _("Drone Camera")
 #define TEXT_OPT_FPV_BOOM  _("After the Explosion")
 #define TEXT_OPT_FPV_LOST  _("Signal Lost")
-#define TEXT_OPT_FPV_CUT   _("Cutscene")
+#define TEXT_OPT_FPV_ARC   _("Arcade")
 
 #define TEXT_OPT_CHEAT1    _("Enable cheats")
 #define TEXT_OPT_CHEAT2    _("Moonjump (Press L)")

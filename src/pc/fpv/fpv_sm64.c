@@ -106,10 +106,11 @@ static Mat4 sDroneMtx;
 static u8 sKeysDown[512];
 
 #ifdef LIBFPV_KAMIKAZE
-// After the blast: the static of the lost video link with "SIGNAL LOST", or a
-// cutscene of the blast (Options > Controls > After the Explosion), then Mario takes over.
-#define BOOM_ENDING_FRAMES 120 // 4 s
-enum BoomEnding { BOOM_NONE, BOOM_SIGNAL_LOST, BOOM_CUTSCENE };
+// After the blast (Options > Controls > After the Explosion): the static of the lost
+// video link with "SIGNAL LOST", then Mario takes over; or arcade, a cutscene of the
+// blast, then a new drone at the launch point.
+#define BOOM_ENDING_FRAMES 30 // 1 s
+enum BoomEnding { BOOM_NONE, BOOM_SIGNAL_LOST, BOOM_ARCADE };
 static s32 sBoom;
 static u32 sBoomFrames;     // game frames since the blast
 static float sBoomTime;     // sTime of the blast
@@ -1113,7 +1114,7 @@ void fpv_sm64_init(void) {
 #ifdef LIBFPV_KAMIKAZE
         sTestKamikaze = strstr(test, "kamikaze") != NULL;
         if (sTestKamikaze) {
-            configFpvBoomEnding = strstr(test, "cutscene") != NULL;
+            configFpvBoomEnding = strstr(test, "arcade") != NULL;
             fpv_kamikaze_set_installed(1); // the player would tick it in F8 > Fly
         }
 #endif
@@ -1452,8 +1453,8 @@ static u16 overlay_actions(void) {
     static s32 endingShown = -1;
     if (endingShown != (s32) configFpvBoomEnding) {
         endingShown = configFpvBoomEnding;
-        fpv_overlay_set_action(ACTION_ENDING, configFpvBoomEnding ? "After the explosion: cutscene (click for signal lost)"
-                                                                  : "After the explosion: signal lost (click for cutscene)");
+        fpv_overlay_set_action(ACTION_ENDING, configFpvBoomEnding ? "After the explosion: arcade (click for signal lost)"
+                                                                  : "After the explosion: signal lost (click for arcade)");
     }
 #endif
     u16 pressed = 0;
@@ -1484,15 +1485,22 @@ static s32 kamikaze_update(void) {
                  d.position[2], sqrtf(d.velocity[0] * d.velocity[0] + d.velocity[1] * d.velocity[1]
                                       + d.velocity[2] * d.velocity[2]) * 0.036f, d.object_id);
         blast(sBoomPos);
-        sBoom = configFpvBoomEnding ? BOOM_CUTSCENE : BOOM_SIGNAL_LOST;
+        sBoom = configFpvBoomEnding ? BOOM_ARCADE : BOOM_SIGNAL_LOST;
         sBoomFrames = 0;
         sBoomTime = sTime;
-        if (sBoom == BOOM_CUTSCENE) boom_camera_start();
+        if (sBoom == BOOM_ARCADE) boom_camera_start();
         d.struct_size = sizeof(d);
     }
     if (sBoom == BOOM_NONE) return FALSE;
     blast_effects(sBoomFrames);
     if (++sBoomFrames >= BOOM_ENDING_FRAMES) {
+        if (sBoom == BOOM_ARCADE) {
+            test_log("kamikaze: ending %d over, a new drone", sBoom);
+            fpv_drone_repair(sDrone); // a new, safe warhead
+            fpv_drone_reset(sDrone, sSpawnPos, sSpawnRot);
+            sBoom = BOOM_NONE;
+            return FALSE;
+        }
         test_log("kamikaze: ending %d over, Mario takes over", sBoom);
         recall();
         return TRUE;
@@ -1720,7 +1728,7 @@ static const fpv_camera *active_camera(void) {
     if (sTestPilot) return pilot_test_camera();
 #ifdef LIBFPV_KAMIKAZE
     if (sBoom == BOOM_SIGNAL_LOST) return &sFrame.camera;
-    if (sBoom == BOOM_CUTSCENE) return boom_camera();
+    if (sBoom == BOOM_ARCADE) return boom_camera();
 #endif
     switch (sCamMode) {
         case CAM_CHASE: return &sFrame.chase_camera;
@@ -1856,15 +1864,15 @@ void fpv_sm64_gfx_frame_done(int width, int height) {
         marioShot = 1;
     }
 #ifdef LIBFPV_KAMIKAZE
-    // kamikaze test: the ending, then Mario back in control
+    // kamikaze test: the ending, then Mario back in control (or the new drone, arcade)
     static int boomShot, afterFrames;
-    if (sTestLevel && sBoom != BOOM_NONE && boomShot < 2 && sBoomFrames >= (boomShot ? 60u : 15u)) {
+    if (sTestLevel && sBoom != BOOM_NONE && boomShot < 2 && sBoomFrames >= (boomShot ? 25u : 8u)) {
         char path[SYS_MAX_PATH];
         snprintf(path, sizeof(path), "%s/fpv_shot_boom%d.bmp", sys_user_path(), boomShot++);
         gfx_fpv_gl_save_bmp(path, width, height);
         test_log("screenshot %s", path);
     }
-    if (sTestLevel && sDetonations > 0 && !sActive && afterFrames >= 0 && ++afterFrames > 5) {
+    if (sTestLevel && sDetonations > 0 && sBoom == BOOM_NONE && afterFrames >= 0 && ++afterFrames > 5) {
         char path[SYS_MAX_PATH];
         snprintf(path, sizeof(path), "%s/fpv_shot_after.bmp", sys_user_path());
         gfx_fpv_gl_save_bmp(path, width, height);

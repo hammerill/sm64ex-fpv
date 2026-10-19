@@ -74,7 +74,7 @@ unsigned int configKeyStickRight[MAX_BINDS] = { 0x0020,   VK_INVALID, VK_INVALID
 unsigned int configKeyFpvToggle[MAX_BINDS]  = { 0x0021,   0x1004,     VK_INVALID };
 unsigned int configKeyFpvReset[MAX_BINDS]   = { 0x0013,   0x100B,     VK_INVALID };
 unsigned int configKeyFpvCamera[MAX_BINDS]  = { 0x002F,   0x100E,     VK_INVALID };
-// kamikaze drone (libfpv built with LIBFPV_KAMIKAZE): 0 = "SIGNAL LOST" in the goggles, 1 = cutscene
+// kamikaze drone (libfpv built with LIBFPV_KAMIKAZE): 0 = "SIGNAL LOST" in the goggles, 1 = arcade (cutscene, then a new drone)
 unsigned int configFpvBoomEnding = 0;
 unsigned int configStickDeadzone = 16; // 16*DEADZONE_STEP=4960 (the original default deadzone)
 unsigned int configRumbleStrength = 50;

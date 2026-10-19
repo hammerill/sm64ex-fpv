@@ -136,7 +136,7 @@ static const u8 bindStr[][32] = {
 static const u8 optsFpvStr[][32] = {
     { TEXT_OPT_FPV_BOOM },
     { TEXT_OPT_FPV_LOST },
-    { TEXT_OPT_FPV_CUT },
+    { TEXT_OPT_FPV_ARC },
 };
 
 static const u8 *fpvBoomChoices[] = {

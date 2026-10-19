@@ -34,7 +34,7 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
   stays on every new or repaired drone until the game is closed (it is not
   saved).
 - **Arming.** The motors only arm with the bomb arm switch (AUX7) off. Take
-  off, flip it, and the warhead is live (OSD `STEADY`; with an arming delay
+  off, flip it, and the warhead is live (OSD `BOMB_ARMED`; with an arming delay
   set in F8 > Fly, `ARMING 3` first). K toggles it on the keyboard, X (West)
   on a gamepad. The bomb status is a Betaflight OSD element ("Custom message
   1"): move or hide it in F8 > OSD > "Bomb status" or the Configurator.
@@ -51,11 +51,11 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
   close). Mario is hurt if he stands in the explosion itself.
 - **After the explosion.** Options > Controls > "After the Explosion" (or the
   button in F8 > Fly) picks the ending. **Signal Lost** (default) keeps the
-  goggles on screen: static with libfpv's `SIGNAL LOST`, and none of the
-  game's HUD over it, like a real lost feed. **Cutscene** shows the
-  blast from the pilot's side, short of walls. After 4 s Mario takes over
-  again. Drone Reset gives a new drone at once instead, and Drone Toggle
-  recalls it.
+  goggles on screen for 1 s: static with libfpv's `SIGNAL LOST`, and none of
+  the game's HUD over it, like a real lost feed. Then Mario takes over again.
+  **Arcade** shows the blast from the pilot's side, short of walls, for 1 s,
+  then a new drone takes off from the launch point. Drone Reset gives a new
+  drone at once instead, and Drone Toggle recalls it.
 - **Payload, arming delay and fuse.** The warhead is real weight (by default
   60 % of the quad). F8 > Fly tunes it, the arming delay (none by default) and
   the impact fuse.
@@ -137,7 +137,7 @@ OSD and the overlay (other renderers tell libfpv there is no lens pass).
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,kamikaze[,cutscene]]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,kamikaze[,arcade]]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
@@ -145,8 +145,8 @@ and screenshots to `fpv_shot*.bmp` in the user folder. `clean` turns the OSD
 disable switch on after 6 s. `pilot` films Mario during the flight instead of
 a drone camera, from in front of him or `<degrees>` around him.
 `kamikaze` (kamikaze builds) installs the bomb, turns the bomb arm switch on after take-off and
-strikes the Goomba, then plays the signal lost ending (or the cutscene with
-`cutscene`) and redeploys. It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
+strikes the Goomba, then plays the signal lost ending and redeploys (or the
+arcade ending with `arcade`, which respawns the drone). It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
 and `fpv_shot_after.bmp`.
 
 ## How it hooks the game
