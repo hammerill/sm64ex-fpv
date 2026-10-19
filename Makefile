@@ -264,8 +264,10 @@ ifeq ($(DUMMY),FAIL)
 endif
 endif
 
-# Make tools if out of date
-DUMMY := $(shell CC=$(CC) CXX=$(CXX) $(MAKE) -C tools -j1 >&2 || echo FAIL)
+# Make tools if out of date (they run on the build machine, so cross builds use the host compiler)
+TOOLS_CC ?= $(if $(CROSS),gcc,$(CC))
+TOOLS_CXX ?= $(if $(CROSS),g++,$(CXX))
+DUMMY := $(shell $(MAKE) -C tools -j1 CC=$(TOOLS_CC) CXX=$(TOOLS_CXX) >&2 || echo FAIL)
 ifeq ($(DUMMY),FAIL)
   $(error Failed to build tools)
 endif
@@ -473,8 +475,13 @@ AS := clang --target=x86_64-linux-gnu -c -x assembler
 endif
 
 ifneq ($(TARGET_WEB),1) # As in, not-web PC port
-  CC ?= $(CROSS)gcc
-  CXX ?= $(CROSS)g++
+  # make's built-in CC=cc / CXX=g++ would win over ?=
+  ifneq ($(filter default undefined,$(origin CC)),)
+    CC := $(CROSS)gcc
+  endif
+  ifneq ($(filter default undefined,$(origin CXX)),)
+    CXX := $(CROSS)g++
+  endif
 else
   CC := emcc
   CXX := emcc
@@ -563,10 +570,10 @@ else ifeq ($(SDL1_USED),1)
 endif
 
 ifneq ($(SDL1_USED)$(SDL2_USED),00)
-  ifeq ($(OSX_BUILD),1)
-    # on OSX at least the homebrew version of sdl-config gives include path as `.../include/SDL2` instead of `.../include`
-    OSX_PREFIX := $(shell $(SDLCONFIG) --prefix)
-    BACKEND_CFLAGS += -I$(OSX_PREFIX)/include $(shell $(SDLCONFIG) --cflags)
+  ifneq ($(filter 1,$(OSX_BUILD) $(WINDOWS_BUILD)),)
+    # the homebrew and official MinGW sdl2-config give include path as `.../include/SDL2` instead of `.../include`
+    SDL_PREFIX := $(shell $(SDLCONFIG) --prefix)
+    BACKEND_CFLAGS += -I$(SDL_PREFIX)/include $(shell $(SDLCONFIG) --cflags)
   else
     BACKEND_CFLAGS += $(shell $(SDLCONFIG) --cflags)
   endif

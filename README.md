@@ -38,18 +38,44 @@ See [FPV_DRONE.md](FPV_DRONE.md) for the full controls, the self-test and how th
 Build [libfpv](https://github.com/hammerill/libfpv) first (see its README), then build this repo with `FPV_DRONE=1`. `LIBFPV_DIR` defaults to `../libfpv`.
 
 ```sh
-# Linux
+# Linux or macOS
 make FPV_DRONE=1
-
-# macOS
-make FPV_DRONE=1
-
-# Windows, cross-compiled from Linux with MinGW-w64
-make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- CC=x86_64-w64-mingw32-gcc \
-     CXX=x86_64-w64-mingw32-g++ TARGET_BITS=64 FPV_DRONE=1
 ```
 
-macOS builds natively with Apple Clang and the system OpenGL framework (tested on Apple Silicon). You need the Xcode command line tools, Python 3 and SDL2 from [Homebrew](https://brew.sh) (`brew install sdl2`); GCC, GLEW and MinGW binutils are not needed. Build libfpv into its `build/mac` folder (`cmake -S . -B build/mac && cmake --build build/mac -j`). The stock `/usr/bin/make` works.
+### Windows
+
+Windows builds are cross-compiled from Linux (WSL works) with MinGW-w64. The commands below are for Ubuntu/Debian.
+
+1. Install the toolchain:
+
+   ```sh
+   sudo apt install build-essential git python3 curl mingw-w64
+   ```
+
+2. Install the MinGW builds of SDL2 and GLEW into a folder of your choice (`~/mingw-deps` here). SDL2 comes from its official MinGW development package. GLEW is compiled into a static library; the headers already ship in this repo (`include/GL`), so only the library is needed:
+
+   ```sh
+   DEPS=$HOME/mingw-deps
+   cd "$(mktemp -d)"
+   curl -fsSL https://github.com/libsdl-org/SDL/releases/download/release-2.32.8/SDL2-devel-2.32.8-mingw.tar.gz | tar xz
+   make -C SDL2-2.32.8 cross CROSS_PATH=$DEPS
+   curl -fsSL https://github.com/nigels-com/glew/releases/download/glew-2.1.0/glew-2.1.0.tgz | tar xz
+   x86_64-w64-mingw32-gcc -O2 -DGLEW_STATIC -DGLEW_NO_GLU -Iglew-2.1.0/include -c glew-2.1.0/src/glew.c -o glew.o
+   x86_64-w64-mingw32-ar rcs $DEPS/x86_64-w64-mingw32/lib/libglew32.a glew.o
+   ```
+
+3. Build libfpv for Windows into its `build/win` folder (`build/win-kamikaze` for the [kamikaze drone](FPV_DRONE.md#building)), as its README describes.
+
+4. Build the game:
+
+   ```sh
+   make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- TARGET_BITS=64 FPV_DRONE=1 \
+        SDLCONFIG=$HOME/mingw-deps/x86_64-w64-mingw32/bin/sdl2-config
+   ```
+
+   Add `FPV_KAMIKAZE=1` for the kamikaze drone. Don't pass `CC`/`CXX`: they are derived from `CROSS`, and the build tools under `tools/` must stay native Linux binaries (`TOOLS_CC`/`TOOLS_CXX` choose their compiler). If they were ever built with MinGW, run `make cleantools`.
+
+The result is `build/us_pc/sm64.us.f3dex2e.exe` with `libfpv.dll` next to it. SDL2, GLEW and the MinGW runtime are linked statically, so these two files only depend on Windows system DLLs.
 
 ### macOS app
 

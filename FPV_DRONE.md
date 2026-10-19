@@ -126,9 +126,9 @@ make FPV_DRONE=1 FPV_KAMIKAZE=1
 # Linux or macOS
 make FPV_DRONE=1
 
-# Windows, cross-compiled from Linux with MinGW-w64
-make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- CC=x86_64-w64-mingw32-gcc \
-     CXX=x86_64-w64-mingw32-g++ TARGET_BITS=64 FPV_DRONE=1
+# Windows, cross-compiled from Linux with MinGW-w64 (see the README for the dependencies)
+make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- TARGET_BITS=64 FPV_DRONE=1 \
+     SDLCONFIG=$HOME/mingw-deps/x86_64-w64-mingw32/bin/sdl2-config
 ```
 
 `libfpv.dll` (or `libfpv.so.0`, or `libfpv.0.dylib`) is copied next to the executable, and the
