@@ -26,7 +26,9 @@
 
 #include "gfx_fpv_gl.h"
 
-#ifdef USE_GLES
+#ifdef TARGET_WEB
+# define GLSL_HEADER "#version 100\nprecision highp float;\n" // WebGL 2 always has highp
+#elif defined(USE_GLES)
 # define GLSL_HEADER "#version 100\nprecision mediump float;\n"
 #else
 # define GLSL_HEADER "#version 120\n"
@@ -279,10 +281,25 @@ static GLuint font_texture(uint64_t id) {
 // test helper: writes the back buffer as a 24-bit BMP
 void gfx_fpv_gl_save_bmp(const char *path, int width, int height) {
     int stride = (width * 3 + 3) & ~3;
+#ifdef USE_GLES
+    // GLES only reads RGBA: read into a buffer of that size and pack it down to BGR in place
+    unsigned char *px = malloc((size_t) width * 4 * height);
+    if (!px) return;
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            const unsigned char *s = px + ((size_t) y * width + x) * 4;
+            unsigned char r = s[0], g = s[1], b = s[2], *d = px + (size_t) y * stride + x * 3;
+            d[0] = b; d[1] = g; d[2] = r;
+        }
+    }
+#else
     unsigned char *px = malloc((size_t) stride * height);
     if (!px) return;
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
     glReadPixels(0, 0, width, height, GL_BGR, GL_UNSIGNED_BYTE, px);
+#endif
     FILE *f = fopen(path, "wb");
     if (f) {
         unsigned int size = 54 + stride * height;

@@ -227,17 +227,10 @@ void game_exit(void) {
 static void em_main_loop(void) {
 }
 
-static void request_anim_frame(void (*func)(double time)) {
-    EM_ASM(requestAnimationFrame(function(time) {
-        dynCall("vd", $0, [time]);
-    }), func);
-}
-
-static void on_anim_frame(UNUSED double time) {
+static EM_BOOL on_anim_frame(UNUSED double time, UNUSED void *user) {
     produce_one_frame(); // paces the game frames itself
 
-    if (inited) // only continue if the init flag is still set
-        request_anim_frame(on_anim_frame);
+    return inited; // only continue if the init flag is still set
 }
 #endif
 
@@ -329,7 +322,7 @@ void main_func(void) {
 
 #ifdef TARGET_WEB
     emscripten_set_main_loop(em_main_loop, 0, 0);
-    request_anim_frame(on_anim_frame);
+    emscripten_request_animation_frame_loop(on_anim_frame, NULL);
 #else
     while (true) {
         wm_api->main_loop(produce_one_frame);

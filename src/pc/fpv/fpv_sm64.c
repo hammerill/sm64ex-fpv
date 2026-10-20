@@ -1082,6 +1082,40 @@ static void drone_interactions(Vec3f a, Vec3f b, f32 speed) {
 
 // --- lifecycle ------------------------------------------------------------------------------
 
+#ifdef FPV_BF_CONFIG
+// the build's Betaflight `diff all`, imported once per data dir so the player's later edits are kept
+static void import_bf_config(const char *dataDir) {
+    char marker[SYS_MAX_PATH];
+    snprintf(marker, sizeof(marker), "%s/bf_config_imported", dataDir);
+    FILE *f = fopen(marker, "rb");
+    if (f) {
+        fclose(f);
+        return;
+    }
+    f = fopen(FPV_BF_CONFIG, "rb");
+    if (!f) {
+        test_log("Betaflight config %s not found", FPV_BF_CONFIG);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *diff = malloc(size + 1);
+    if (diff) {
+        diff[fread(diff, 1, size, f)] = '\0';
+        if (fpv_import_betaflight_diff(diff, NULL) == FPV_OK) {
+            FILE *m = fopen(marker, "wb");
+            if (m) fclose(m);
+            test_log("imported Betaflight config %s", FPV_BF_CONFIG);
+        } else {
+            test_log("Betaflight config %s: %s", FPV_BF_CONFIG, fpv_last_error());
+        }
+        free(diff);
+    }
+    fclose(f);
+}
+#endif
+
 void fpv_sm64_init(void) {
     if (sInited) return;
     char dir[SYS_MAX_PATH];
@@ -1104,6 +1138,9 @@ void fpv_sm64_init(void) {
         return;
     }
     test_log("libfpv %s ready, data dir %s", fpv_version_string(), dir);
+#ifdef FPV_BF_CONFIG
+    import_bf_config(dir);
+#endif
     fpv_material lava = { 0.1f, 0.6f, FPV_MATERIAL_KILLS_PROPS };
     fpv_material none = { 0.2f, 0.6f, FPV_MATERIAL_NO_COLLISION | FPV_MATERIAL_TRANSPARENT_TO_VIDEO };
     fpv_material water = { 0.05f, 0.9f, FPV_MATERIAL_KILLS_PROPS | FPV_MATERIAL_TRANSPARENT_TO_VIDEO };

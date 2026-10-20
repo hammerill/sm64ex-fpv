@@ -54,8 +54,17 @@ DISCORDRPC ?= 0
 # Enable the FPV drone (links libfpv from a libfpv checkout and its build folder)
 FPV_DRONE ?= 0
 LIBFPV_DIR ?= ../libfpv
-# Kamikaze drone: needs libfpv built with -DLIBFPV_KAMIKAZE=ON (build folders get a -kamikaze suffix)
+# Kamikaze drone: needs libfpv built with -DLIBFPV_KAMIKAZE=ON (build folders get a -kamikaze suffix);
+# on by default for the web, like libfpv's web demo
+ifeq ($(TARGET_WEB),1)
+  FPV_KAMIKAZE ?= 1
+endif
 FPV_KAMIKAZE ?= 0
+# Betaflight `diff all` imported on the first run; web builds default to the one of libfpv's web demo
+# (FPV_BF_CONFIG= to start from libfpv's defaults)
+ifeq ($(TARGET_WEB),1)
+  FPV_BF_CONFIG ?= $(LIBFPV_DIR)/assets/configs/hammerill.diff.txt
+endif
 
 # Various workarounds for weird toolchains
 
@@ -347,7 +356,7 @@ endif
 OPT_FLAGS += $(BITS)
 
 ifeq ($(TARGET_WEB),1)
-  OPT_FLAGS := -O2 -g4 --source-map-base http://localhost:8080/
+  OPT_FLAGS := -O3
 endif
 
 ifeq ($(TARGET_RPI),1)
@@ -632,6 +641,15 @@ ifeq ($(FPV_DRONE),1)
     CC_CHECK += -DLIBFPV_KAMIKAZE=1
     CFLAGS += -DLIBFPV_KAMIKAZE=1
   endif
+  ifneq ($(FPV_BF_CONFIG),)
+    ifeq ($(wildcard $(FPV_BF_CONFIG)),)
+      $(error FPV_BF_CONFIG: $(FPV_BF_CONFIG) not found)
+    endif
+    # web builds embed it in the page's virtual file system
+    FPV_BF_CONFIG_PATH := $(if $(filter 1,$(TARGET_WEB)),/bf_config.txt,$(abspath $(FPV_BF_CONFIG)))
+    CC_CHECK += -DFPV_BF_CONFIG='"$(FPV_BF_CONFIG_PATH)"'
+    CFLAGS += -DFPV_BF_CONFIG='"$(FPV_BF_CONFIG_PATH)"'
+  endif
 endif
 
 # Check for texture fix option
@@ -683,7 +701,10 @@ else
 endif
 
 ifeq ($(TARGET_WEB),1)
-  LDFLAGS := -lm -lGL -lSDL2 -no-pie -s TOTAL_MEMORY=64MB -g4 --source-map-base http://localhost:8080/ -s "EXTRA_EXPORTED_RUNTIME_METHODS=['callMain']"
+  # WebGL 2 for libfpv's overlay and lens pass; memory grows for large collision meshes
+  LDFLAGS := $(OPT_FLAGS) -lm -sUSE_SDL=2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sINITIAL_MEMORY=64MB \
+             -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=web -sEXPORTED_RUNTIME_METHODS=callMain \
+             --shell-file web/shell.html
 
 else ifeq ($(WINDOWS_BUILD),1)
   LDFLAGS := $(BITS) -march=$(TARGET_ARCH) -Llib -lpthread $(BACKEND_LDFLAGS) -static
@@ -718,7 +739,16 @@ endif # End of LDFLAGS
 FPV_LIBS :=
 ifeq ($(FPV_DRONE),1)
   LIBFPV_SUFFIX := $(if $(filter 1,$(FPV_KAMIKAZE)),-kamikaze,)
-  ifeq ($(WINDOWS_BUILD),1)
+  ifeq ($(TARGET_WEB),1)
+    # linked statically into the WebAssembly module (libfpv docs/WEB.md)
+    LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/web$(LIBFPV_SUFFIX)
+    FPV_STATIC := $(LIBFPV_BUILD)/libfpv.a
+    LDFLAGS += $(FPV_STATIC) -fwasm-exceptions -lidbfs.js \
+               --js-library $(LIBFPV_DIR)/src/web/libfpv_web.js -sDEFAULT_TO_CXX
+    ifneq ($(FPV_BF_CONFIG),)
+      LDFLAGS += --embed-file $(FPV_BF_CONFIG)@/bf_config.txt
+    endif
+  else ifeq ($(WINDOWS_BUILD),1)
     LIBFPV_BUILD ?= $(LIBFPV_DIR)/build/win$(LIBFPV_SUFFIX)
     # full path: -static would skip libfpv.dll.a when searching -lfpv
     LDFLAGS += $(LIBFPV_BUILD)/libfpv.dll.a
@@ -1085,7 +1115,7 @@ $(BUILD_DIR)/%.o: %.s
 
 
 
-$(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(if $(RPC_LIBS),$(BUILD_DIR)/$(RPC_LIBS),) | $(FPV_LIBS)
+$(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(if $(RPC_LIBS),$(BUILD_DIR)/$(RPC_LIBS),) $(FPV_STATIC) $(if $(filter 1,$(TARGET_WEB)),web/shell.html $(FPV_BF_CONFIG),) | $(FPV_LIBS)
 	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(SOUND_OBJ_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
 
 # macOS .app bundle: make app (pass the same options as the build, e.g. FPV_DRONE=1)

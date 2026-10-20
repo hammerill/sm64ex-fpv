@@ -12,6 +12,10 @@
 #include "configfile.h"
 #include "platform.h"
 
+#if defined(TARGET_WEB) && defined(FPV_DRONE)
+#include <libfpv.h>
+#endif
+
 /* NULL terminated list of platform specific read-only data paths */
 /* priority is top first */
 const char *sys_ropaths[] = {
@@ -123,6 +127,10 @@ static inline bool copy_userdata(const char *userdir) {
 }
 
 const char *sys_user_path(void) {
+#if defined(TARGET_WEB) && defined(FPV_DRONE)
+    // libfpv keeps this folder in IndexedDB, so the config and drone settings survive a reload
+    return FPV_WEB_DATA_DIR;
+#endif
     static char path[SYS_MAX_PATH] = { 0 };
 
     // get the new pref path from SDL

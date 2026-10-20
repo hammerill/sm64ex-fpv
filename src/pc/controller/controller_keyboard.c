@@ -3,10 +3,6 @@
 
 #include "controller_api.h"
 
-#ifdef TARGET_WEB
-#include "controller_emscripten_keyboard.h"
-#endif
-
 #include "../configfile.h"
 #include "controller_keyboard.h"
 
@@ -83,10 +79,6 @@ static void keyboard_bindkeys(void) {
 
 static void keyboard_init(void) {
     keyboard_bindkeys();
-
-#ifdef TARGET_WEB
-    controller_emscripten_keyboard_init();
-#endif
 }
 
 static void keyboard_read(OSContPad *pad) {

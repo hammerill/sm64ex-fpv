@@ -148,6 +148,36 @@ make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- TARGET_BITS=64 FPV_DRONE=1 \
 game needs it at run time. Only the OpenGL renderer draws the lens effect, the
 OSD and the overlay (other renderers tell libfpv there is no lens pass).
 
+To start every new player from your own Betaflight setup, pass a `diff all`
+file as `FPV_BF_CONFIG=<file>`. It is imported on the first run and the
+player's later changes are kept.
+
+### Web
+
+The game, the mod and libfpv compile into one WebAssembly module (libfpv's
+`docs/WEB.md`). Build libfpv for the web first, the way its web demo is built
+(kamikaze), then the game with `TARGET_WEB=1`:
+
+```sh
+source /path/to/emsdk/emsdk_env.sh
+emcmake cmake -S ../libfpv -B ../libfpv/build/web-kamikaze -DLIBFPV_KAMIKAZE=ON && cmake --build ../libfpv/build/web-kamikaze -j
+make TARGET_WEB=1 FPV_DRONE=1 -j
+python3 -m http.server -d build/us_web 8080   # then open http://localhost:8080/sm64.us.f3dex2e.html
+```
+
+Web builds default to `FPV_KAMIKAZE=1` and to the `diff all` of libfpv's web
+demo (`FPV_BF_CONFIG=../libfpv/assets/configs/hammerill.diff.txt`); pass
+`FPV_KAMIKAZE=0` (with libfpv in `build/web`) or `FPV_BF_CONFIG=` to change
+that. `build/us_web` then holds the page: the `.html`, `.js` and `.wasm`, ready
+for any static host (rename the `.html` to `index.html` if you like). The page
+is `web/shell.html`.
+
+In the browser, the game's config, the drone settings, EEPROMs and radio
+mappings are kept in the browser's IndexedDB (`/libfpv`), and the save file in
+its local storage. Radios connect through the Gamepad API: move a stick so the
+browser shows it to the page. Betaflight Configurator cannot connect; the
+Betaflight CLI is in F8 > Import & CLI.
+
 ## Self test
 
 `SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,kamikaze[,arcade]]` boots through the debug

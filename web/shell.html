@@ -1,0 +1,87 @@
+<!doctype html>
+<!-- The web page of `make TARGET_WEB=1 FPV_DRONE=1`, filled in by Emscripten
+     ({{{ SCRIPT }}} loads the game's .js, which loads its .wasm). Based on
+     libfpv's examples/standalone/web/shell.html. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Mario 64 FPV</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { color-scheme: dark; --bg: #0d1117; --card: rgba(13, 17, 23, 0.92); --text: #e6edf3; --dim: #8b949e; --accent: #ff7a1a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
+               font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas { display: block; outline: none; width: 100%; height: 100%; }  /* SDL follows its CSS size */
+  #card { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 1;
+          overflow-y: auto; }
+  #card.hidden { display: none; }
+  #card > div { background: var(--card); border: 1px solid #30363d; border-radius: 12px; padding: 24px 28px;
+                max-width: 600px; width: 100%; box-sizing: border-box; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); margin: auto; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  #status { color: var(--dim); margin: 0 0 16px; min-height: 1.45em; }
+  #status.error { color: #ff7b72; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 14px; }
+  td { padding: 3px 0; vertical-align: top; }
+  td:first-child { white-space: nowrap; padding-right: 16px; color: var(--accent); font-weight: 600; }
+  p.note { color: var(--dim); margin: 0 0 16px; font-size: 13px; }
+  button { font: inherit; font-weight: 600; color: #111; background: var(--accent); border: 0; border-radius: 8px;
+           padding: 9px 22px; cursor: pointer; }
+  button:disabled { opacity: 0.4; cursor: default; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+<div id="card"><div>
+  <h1>Super Mario 64 FPV</h1>
+  <p id="status">Loading...</p>
+  <table>
+    <tr><td>F</td><td>deploy / recall the drone</td></tr>
+    <tr><td>Enter</td><td>arm / disarm</td></tr>
+    <tr><td>W / S</td><td>throttle</td></tr>
+    <tr><td>A / D</td><td>yaw</td></tr>
+    <tr><td>Arrow keys</td><td>pitch and roll</td></tr>
+    <tr><td>T</td><td>turtle mode (flip over after a crash)</td></tr>
+    <tr><td>K / hold X</td><td>arm the bomb / detonate</td></tr>
+    <tr><td>V</td><td>camera: FPV / chase / line of sight</td></tr>
+    <tr><td>R</td><td>repair and respawn at the launch point</td></tr>
+    <tr><td>Y</td><td>recall the drone and move Mario under it</td></tr>
+    <tr><td>F8</td><td>settings: radio setup, rates, OSD, Betaflight CLI</td></tr>
+  </table>
+  <p class="note">Fly with a real radio: connect it with USB in joystick mode, move a stick so the browser shows it to
+    the page, then set it up in F8 &gt; Radio. Settings are saved in this browser.</p>
+  <button id="play" disabled>Play</button>
+</div></div>
+<script>
+  var card = document.getElementById('card'), statusEl = document.getElementById('status');
+  var play = document.getElementById('play');
+  function fail(text) {
+    statusEl.textContent = text;
+    statusEl.className = 'error';
+    card.classList.remove('hidden');
+  }
+  // SDL's fill-document window hides every other element of the page: keep the card
+  new MutationObserver(function () {
+    if (card.parentNode !== document.body) document.body.appendChild(card);
+  }).observe(document.body, { childList: true });
+  play.onclick = function () {
+    card.classList.add('hidden');
+    document.getElementById('canvas').focus();
+  };
+  if (!document.createElement('canvas').getContext('webgl2'))
+    fail('This browser has no WebGL 2. Use a current Chrome, Edge, Firefox or Safari.');
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    setStatus: function (text) {
+      if (statusEl.className == 'error') return;
+      var m = text.match(/\((\d+(\.\d+)?)\/(\d+)\)/);
+      statusEl.textContent = m ? 'Loading... ' + Math.round(100 * m[1] / m[3]) + ' %' : (text || 'Ready.');
+    },
+    onRuntimeInitialized: function () { play.disabled = false; },
+    onAbort: function (what) { fail('The game stopped: ' + what + '\nReload the page to start again.'); },
+  };
+  window.addEventListener('error', function (e) { fail('Error: ' + e.message); });
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

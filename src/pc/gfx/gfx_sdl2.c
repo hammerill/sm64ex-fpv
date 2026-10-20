@@ -188,7 +188,11 @@ static void gfx_sdl_init(const char *window_title) {
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-    #ifdef USE_GLES
+    #ifdef TARGET_WEB
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);  // WebGL 2
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    #elif defined(USE_GLES)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);  // These attributes allow for hardware acceleration on RPis.
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -265,8 +269,6 @@ static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
-#ifndef TARGET_WEB
-            // Scancodes are broken in Emscripten SDL2: https://bugzilla.libsdl.org/show_bug.cgi?id=3259
             case SDL_KEYDOWN:
 #ifdef FPV_DRONE
                 fpv_handle_key_event(&event.key);
@@ -279,7 +281,6 @@ static void gfx_sdl_handle_events(void) {
 #endif
                 gfx_sdl_onkeyup(event.key.keysym.scancode);
                 break;
-#endif
 #ifdef FPV_DRONE
             case SDL_TEXTINPUT:
                 fpv_sm64_text(event.text.text);
