@@ -1,0 +1,77 @@
+# Builds the game for the web on every push to nightly and deploys it to
+# https://sm64ex-fpv.hammerill.com (FPV_DRONE.md#web). The VPS accepts the
+# deploy key only for rrsync into the site's folder.
+name: Web
+
+on:
+  push:
+    branches: [nightly]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-deploy
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    environment:
+      name: web
+      url: https://sm64ex-fpv.hammerill.com
+    steps:
+      # side by side, like a local checkout (LIBFPV_DIR defaults to ../libfpv)
+      - uses: actions/checkout@v4
+        with:
+          path: sm64ex-fpv
+
+      - uses: actions/checkout@v4
+        with:
+          repository: hammerill/libfpv
+          path: libfpv
+          submodules: true    # not recursive: SimITL's nested ones are SSH
+
+      - name: Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install 6.0.12
+          ~/emsdk/emsdk activate 6.0.12
+
+      - name: Build libfpv
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          emcmake cmake -S libfpv -B libfpv/build/web-kamikaze \
+            -DLIBFPV_KAMIKAZE=ON -DLIBFPV_BUILD_TESTS=OFF -DLIBFPV_BUILD_EXAMPLES=OFF
+          cmake --build libfpv/build/web-kamikaze -j"$(nproc)"
+
+      - name: Base ROM
+        env:
+          DEPLOY_BASEROM_URL: ${{ secrets.DEPLOY_BASEROM_URL }}
+        run: curl -fsSL "$DEPLOY_BASEROM_URL" -o sm64ex-fpv/baserom.us.z64
+
+      - name: Build
+        working-directory: sm64ex-fpv
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          # web builds import libfpv's assets/configs/hammerill.diff.txt (FPV_BF_CONFIG)
+          make TARGET_WEB=1 FPV_DRONE=1 -j"$(nproc)"
+          mkdir -p build/site
+          cp build/us_web/sm64.us.f3dex2e.html build/site/index.html
+          cp build/us_web/sm64.us.f3dex2e.js build/us_web/sm64.us.f3dex2e.wasm build/site/
+          cp ../libfpv/LICENSE build/site/libfpv.LICENSE.txt
+
+      - name: Deploy
+        working-directory: sm64ex-fpv
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # rrsync on the VPS maps / to the site's folder
+          rsync -rtvz --delete-after --delay-updates \
+            -e "ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes" \
+            build/site/ deploy@hammerill.com:/
