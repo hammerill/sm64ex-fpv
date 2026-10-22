@@ -180,7 +180,7 @@ Betaflight CLI is in F8 > Import & CLI.
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,kamikaze[,arcade]]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,kamikaze[,arcade]][,bowser[,zombie]]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
@@ -193,6 +193,10 @@ moves the first drone 30 m out after 2 s and logs the stand-in.
 strikes the Goomba, then plays the signal lost ending and redeploys (or the
 arcade ending with `arcade`, which respawns the drone). It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
 and `fpv_shot_after.bmp`.
+`bowser` (kamikaze builds, in a Bowser arena: 30, 33 or 34) skips the drone and
+sets off a blast on Bowser wherever he stands every 5 s while he fights, logging
+his action, health and position, to check that he stays down after the last
+one. `zombie` starts him with no health, as an older build could leave him.
 
 ## How it hooks the game
 

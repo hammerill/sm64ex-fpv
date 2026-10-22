@@ -155,6 +155,8 @@ static u32 sTestDrawnFrames; // displayed frames, for the test's framerate log
 static s32 sTestKamikaze; // kamikaze builds: arm the warhead and strike the Goomba
 static s32 sTestHere; // end the first flight with "Move Mario Here" instead of a recall
 static s32 sTestFar;  // move the first drone 30 m out at 2 s, past where the stand-in follows it
+static s32 sTestBowser; // kamikaze builds, in a Bowser arena: blast him where he stands until he's down
+static s32 sTestZombie; // ...starting from a Bowser left fighting with no health
 
 static void test_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 struct fpv_camera;
@@ -957,11 +959,25 @@ static void blast_boss(struct Object *obj, Vec3f p, f32 dist) {
             obj->oAnimState = 3;
         }
     } else if (bhv_is(obj, bhvBowser)) {
-        // as one of his mines; not while he jumps onto the stage, talks, teleports or is down
-        if (obj->oHealth > 0 && obj->oHeldState == HELD_FREE && a != 2 && a != 4 && a != 5 && a != 6 && a != 12
-            && a != 16) {
-            obj->oHealth--;
-            obj->oAction = obj->oHealth <= 0 ? 4 : 12;
+        // as one of his mines; not while he jumps onto the stage, talks, teleports or is down.
+        // A Bowser back on the stage with no health left (from an older build) is finished too.
+        if (obj->oHeldState == HELD_FREE && a != 2 && a != 4 && a != 5 && a != 6 && a != 12 && a != 16) {
+            if (obj->oHealth > 0) obj->oHealth--;
+            if (obj->oHealth > 0) {
+                obj->oAction = 12;
+            } else {
+                // his death, without the fly-back: it carries him toward the centre of the stage
+                // at up to 400/frame, which from a mine at the edge lands on the stage but from
+                // anywhere else can throw him off it, and off the stage he climbs back and fights on
+                cur_obj_change_action(4);
+                cur_obj_init_animation_with_sound(16);
+                obj->oForwardVel = 0.0f;
+                obj->oVelY = 100.0f;
+                obj->oMoveAngleYaw = obj->oBowserAngleToCentre + 0x8000;
+                obj->oBowserUnkF8 = 0;
+                obj->oMoveFlags = 0; // still "on the ground": the bounce would end before it starts
+                obj->oSubAction = 1; // bowser_dead_bounce
+            }
         }
     } else if (bhv_is(obj, bhvGhostHuntBigBoo) || bhv_is(obj, bhvMerryGoRoundBigBoo)
                || bhv_is(obj, bhvBalconyBigBoo)) {
@@ -1013,6 +1029,30 @@ static void finish_victims(void) {
         }
     }
     sVictimCount = 0;
+}
+
+// SM64_FPV_TEST=<34>,bowser[,zombie]: a blast on Bowser wherever he stands, every 5 s while
+// he fights, logging where he ends up
+static void test_bowser(void) {
+    static s32 cooldown = 90, blasts;
+    struct Object *b = NULL;
+    for (int i = 0; i < OBJECT_POOL_CAPACITY && b == NULL; i++) {
+        struct Object *obj = &gObjectPool[i];
+        if ((obj->activeFlags & ACTIVE_FLAG_ACTIVE) && bhv_is(obj, bhvBowser)) b = obj;
+    }
+    if (b == NULL) return;
+    if (sTestLevelFrames % 15 == 0) {
+        test_log("bowser: action %d sub %d health %d at %.0f %.0f %.0f, %.0f from the centre", b->oAction,
+                 b->oSubAction, b->oHealth, b->oPosX, b->oPosY, b->oPosZ, b->oBowserDistToCentre);
+    }
+    s32 a = b->oAction;
+    s32 fighting = a == 0 || a == 7 || a == 8 || a == 9 || a == 13 || a == 14 || a == 15;
+    if (--cooldown > 0 || !fighting || blasts >= 6) return;
+    if (sTestZombie && blasts == 0) b->oHealth = 0;
+    Vec3f p = { b->oPosX, b->oPosY + 100.0f, b->oPosZ };
+    test_log("bowser: blast %d", ++blasts);
+    blast(p);
+    cooldown = 150;
 }
 
 // a burst of the game's explosions: one at the blast, then a ring around it
@@ -1163,6 +1203,8 @@ void fpv_sm64_init(void) {
         sTestPilot = strstr(test, "pilot") != NULL;
         sTestHere = strstr(test, "here") != NULL;
         sTestFar = strstr(test, "far") != NULL;
+        sTestBowser = strstr(test, "bowser") != NULL;
+        sTestZombie = strstr(test, "zombie") != NULL;
         if (sTestPilot) sTestCam = CAM_CHASE; // no lens pass or OSD
         if (sTestPilot && strstr(test, "pilot=")) sTestPilotYaw = atof(strstr(test, "pilot=") + 6) * (3.14159265f / 180.0f);
 #ifdef LIBFPV_KAMIKAZE
@@ -1374,6 +1416,8 @@ void fpv_sm64_filter_pad(OSContPad *pad) {
         if (sTestLevelFrames < 0) {
             if (gCurrLevelNum != sTestLevel && sTestFrame > 60 && gCurrDemoInput == NULL) gCurrLevelNum = sTestLevel;
             if (sTestFrame > 60 && sTestFrame % 40 == 0) pad->button |= START_BUTTON;
+        } else if (sTestBowser) {
+            if (sTestFrame % 10 == 0) pad->button |= A_BUTTON; // through his speech
         } else if (!sActive && sTestLevelFrames >= 45 && sTestLevelFrames % 45 == 0 && sTestDeploys < 2) {
             pad->ext_button |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT;
             sTestDeploys++;
@@ -1406,6 +1450,9 @@ static void test_update(void) {
                  gMarioState->pos[0], gMarioState->pos[1], gMarioState->pos[2], gNumStaticSurfaces);
     }
     sTestLevelFrames++;
+#ifdef LIBFPV_KAMIKAZE
+    if (sTestBowser) test_bowser();
+#endif
     if (!sActive) return;
     if (sTestDeploys == 2 && sTestTime > 10.0f) {
         test_log("test: redeployed, drone at %.0f %.0f %.0f", sFrame.position[0], sFrame.position[1], sFrame.position[2]);
