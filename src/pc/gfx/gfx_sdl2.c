@@ -40,33 +40,36 @@
 #include <libfpv.h>
 #include "src/pc/fpv/fpv_sm64.h"
 
-// SDL keys to libfpv key codes (letters/digits as uppercase ASCII)
-static int fpv_key_from_sdl(SDL_Keycode k) {
-    if (k >= SDLK_a && k <= SDLK_z) return 'A' + (int)(k - SDLK_a);
-    if (k >= SDLK_0 && k <= SDLK_9) return '0' + (int)(k - SDLK_0);
-    if (k >= SDLK_F1 && k <= SDLK_F12) return FPV_KEY_F1 + (int)(k - SDLK_F1);
+// SDL keys to libfpv key codes (letters/digits as uppercase ASCII). Scancodes, not
+// keycodes: libfpv's letter keys are physical positions (W/A/S/D throttle and yaw
+// sit under the left hand on AZERTY too, labelled Z/Q/S/D).
+static int fpv_key_from_sdl(SDL_Scancode k) {
+    if (k >= SDL_SCANCODE_A && k <= SDL_SCANCODE_Z) return 'A' + (int)(k - SDL_SCANCODE_A);
+    if (k >= SDL_SCANCODE_1 && k <= SDL_SCANCODE_9) return '1' + (int)(k - SDL_SCANCODE_1);
+    if (k >= SDL_SCANCODE_F1 && k <= SDL_SCANCODE_F12) return FPV_KEY_F1 + (int)(k - SDL_SCANCODE_F1);
     switch (k) {
-        case SDLK_TAB: return FPV_KEY_TAB;
-        case SDLK_RETURN: case SDLK_KP_ENTER: return FPV_KEY_ENTER;
-        case SDLK_ESCAPE: return FPV_KEY_ESCAPE;
-        case SDLK_SPACE: return FPV_KEY_SPACE;
-        case SDLK_LEFT: return FPV_KEY_LEFT;
-        case SDLK_RIGHT: return FPV_KEY_RIGHT;
-        case SDLK_UP: return FPV_KEY_UP;
-        case SDLK_DOWN: return FPV_KEY_DOWN;
-        case SDLK_PAGEUP: return FPV_KEY_PAGE_UP;
-        case SDLK_PAGEDOWN: return FPV_KEY_PAGE_DOWN;
-        case SDLK_HOME: return FPV_KEY_HOME;
-        case SDLK_END: return FPV_KEY_END;
-        case SDLK_INSERT: return FPV_KEY_INSERT;
-        case SDLK_DELETE: return FPV_KEY_DELETE;
-        case SDLK_BACKSPACE: return FPV_KEY_BACKSPACE;
-        case SDLK_LSHIFT: return FPV_KEY_LSHIFT;
-        case SDLK_RSHIFT: return FPV_KEY_RSHIFT;
-        case SDLK_LCTRL: return FPV_KEY_LCTRL;
-        case SDLK_RCTRL: return FPV_KEY_RCTRL;
-        case SDLK_LALT: return FPV_KEY_LALT;
-        case SDLK_RALT: return FPV_KEY_RALT;
+        case SDL_SCANCODE_0: return '0';
+        case SDL_SCANCODE_TAB: return FPV_KEY_TAB;
+        case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: return FPV_KEY_ENTER;
+        case SDL_SCANCODE_ESCAPE: return FPV_KEY_ESCAPE;
+        case SDL_SCANCODE_SPACE: return FPV_KEY_SPACE;
+        case SDL_SCANCODE_LEFT: return FPV_KEY_LEFT;
+        case SDL_SCANCODE_RIGHT: return FPV_KEY_RIGHT;
+        case SDL_SCANCODE_UP: return FPV_KEY_UP;
+        case SDL_SCANCODE_DOWN: return FPV_KEY_DOWN;
+        case SDL_SCANCODE_PAGEUP: return FPV_KEY_PAGE_UP;
+        case SDL_SCANCODE_PAGEDOWN: return FPV_KEY_PAGE_DOWN;
+        case SDL_SCANCODE_HOME: return FPV_KEY_HOME;
+        case SDL_SCANCODE_END: return FPV_KEY_END;
+        case SDL_SCANCODE_INSERT: return FPV_KEY_INSERT;
+        case SDL_SCANCODE_DELETE: return FPV_KEY_DELETE;
+        case SDL_SCANCODE_BACKSPACE: return FPV_KEY_BACKSPACE;
+        case SDL_SCANCODE_LSHIFT: return FPV_KEY_LSHIFT;
+        case SDL_SCANCODE_RSHIFT: return FPV_KEY_RSHIFT;
+        case SDL_SCANCODE_LCTRL: return FPV_KEY_LCTRL;
+        case SDL_SCANCODE_RCTRL: return FPV_KEY_RCTRL;
+        case SDL_SCANCODE_LALT: return FPV_KEY_LALT;
+        case SDL_SCANCODE_RALT: return FPV_KEY_RALT;
         default: return FPV_KEY_NONE;
     }
 }
@@ -77,7 +80,7 @@ static void fpv_handle_key_event(const SDL_KeyboardEvent *key) {
     // Alt+Enter toggles fullscreen and must not reach the drone (Enter arms)
     if (down && (key->keysym.sym == SDLK_RETURN || key->keysym.sym == SDLK_KP_ENTER) && (key->keysym.mod & KMOD_ALT))
         return;
-    fpv_sm64_key(fpv_key_from_sdl(key->keysym.sym), down);
+    fpv_sm64_key(fpv_key_from_sdl(key->keysym.scancode), down);
 }
 #endif
 
