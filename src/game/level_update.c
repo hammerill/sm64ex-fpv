@@ -60,6 +60,14 @@
 
 #define WARP_NODE_CREDITS_MIN 0xF8
 
+// The web build is for demos: start a new game the way a saved one loads,
+// without the Peach/Lakitu intro or the pipe
+#ifdef TARGET_WEB
+#define WEB_SKIP_INTRO 1
+#else
+#define WEB_SKIP_INTRO 0
+#endif
+
 #ifdef VERSION_JP
 const char *credits01[] = { "1GAME DIRECTOR", "SHIGERU MIYAMOTO" };
 const char *credits02[] = { "2ASSISTANT DIRECTORS", "YOSHIAKI KOIZUMI", "TAKASHI TEZUKA" };
@@ -1204,7 +1212,7 @@ s32 init_level(void) {
                 set_mario_action(gMarioState, ACT_IDLE, 0);
             } else if (gDebugLevelSelect == 0) {
                 if (gMarioState->action != ACT_UNINITIALIZED) {
-                    if (save_file_exists(gCurrSaveFileNum - 1)) {
+                    if (save_file_exists(gCurrSaveFileNum - 1) || WEB_SKIP_INTRO) {
                         set_mario_action(gMarioState, ACT_IDLE, 0);
                     } else if (gCLIOpts.SkipIntro == 0 && configSkipIntro == 0) {
                         set_mario_action(gMarioState, ACT_INTRO_CUTSCENE, 0);
@@ -1274,7 +1282,7 @@ s32 lvl_init_from_save_file(UNUSED s16 arg0, s32 levelNum) {
 #endif
     sWarpDest.type = WARP_TYPE_NOT_WARPING;
     sDelayedWarpOp = WARP_OP_NONE;
-    gShouldNotPlayCastleMusic = !save_file_exists(gCurrSaveFileNum - 1) && gCLIOpts.SkipIntro == 0 && configSkipIntro == 0;
+    gShouldNotPlayCastleMusic = !save_file_exists(gCurrSaveFileNum - 1) && !WEB_SKIP_INTRO && gCLIOpts.SkipIntro == 0 && configSkipIntro == 0;
 
     gCurrLevelNum = levelNum;
     gCurrCourseNum = COURSE_NONE;
