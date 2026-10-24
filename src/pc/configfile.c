@@ -75,8 +75,6 @@ unsigned int configKeyFpvToggle[MAX_BINDS]  = { 0x0021,   0x1004,     VK_INVALID
 unsigned int configKeyFpvReset[MAX_BINDS]   = { 0x0013,   0x100B,     VK_INVALID };
 unsigned int configKeyFpvCamera[MAX_BINDS]  = { 0x002F,   0x100E,     VK_INVALID };
 unsigned int configKeyFpvHere[MAX_BINDS]    = { 0x0015,   0x100C,     VK_INVALID };
-// kamikaze drone (libfpv built with LIBFPV_KAMIKAZE): 0 = "SIGNAL LOST" in the goggles, 1 = arcade (cutscene, then a new drone)
-unsigned int configFpvBoomEnding = 0;
 unsigned int configStickDeadzone = 16; // 16*DEADZONE_STEP=4960 (the original default deadzone)
 unsigned int configRumbleStrength = 50;
 #ifdef EXTERNAL_DATA
@@ -133,7 +131,6 @@ static const struct ConfigOption options[] = {
     {.name = "key_fpv_reset",        .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvReset},
     {.name = "key_fpv_camera",       .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvCamera},
     {.name = "key_fpv_here",         .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvHere},
-    {.name = "fpv_boom_ending",      .type = CONFIG_TYPE_UINT, .uintValue = &configFpvBoomEnding},
     {.name = "stick_deadzone",       .type = CONFIG_TYPE_UINT, .uintValue = &configStickDeadzone},
     {.name = "rumble_strength",      .type = CONFIG_TYPE_UINT, .uintValue = &configRumbleStrength},
     #ifdef EXTERNAL_DATA

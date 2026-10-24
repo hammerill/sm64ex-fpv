@@ -7,8 +7,8 @@
 // kill the props), collects coins, stars and 1-ups, and knocks out enemies it
 // hits at speed. World units: 100 per metre, so Mario is about 1.6 m tall.
 // With a kamikaze build of libfpv (LIBFPV_KAMIKAZE), the drone can carry a
-// warhead (F8 > Fly > "Bomb installed"): its blast slays the enemies around it
-// and hits the bosses.
+// warhead (F8 > Kamikaze > "Bomb installed"): its blast slays the enemies around it
+// and hits the bosses. What follows the blast is the player's (F8 > Kamikaze).
 
 #ifdef FPV_DRONE
 
@@ -74,7 +74,7 @@ u32 attack_object(struct Object *o, s32 interaction);
 
 enum CamMode { CAM_FPV, CAM_CHASE, CAM_LOS, CAM_COUNT };
 // buttons in the overlay's Fly tab (F8), the same as the drone binds
-enum OverlayAction { ACTION_TOGGLE = 1, ACTION_RESET, ACTION_CAMERA, ACTION_ENDING, ACTION_HERE };
+enum OverlayAction { ACTION_TOGGLE = 1, ACTION_RESET, ACTION_CAMERA, ACTION_HERE };
 
 // Objects spawn, show, wake up and aim by their distance and angle to Mario's object. As
 // gtaiv-fpv streams the world with Niko as an anchor, Mario's object stands in at the drone
@@ -119,15 +119,21 @@ static s32 sAnchored;            // Mario's object is at the drone now (inside c
 static Vec3f sAnchorPos, sAnchorGfxPos; // Mario's object's own position meanwhile
 
 #ifdef LIBFPV_KAMIKAZE
-// After the blast (Options > Controls > After the Explosion): the static of the lost
-// video link with "SIGNAL LOST", then Mario takes over; or arcade, a cutscene of the
-// blast, then a new drone at the launch point. Its length is the player's (F8 > Fly, "Ending").
-enum BoomEnding { BOOM_NONE, BOOM_SIGNAL_LOST, BOOM_ARCADE };
-static s32 sBoom;
+// After the blast, the player's choice in libfpv's overlay (F8 > Kamikaze): a view (the static
+// of the lost video link with "SIGNAL LOST" and none of the game's UI, or a cutscene of the
+// blast) for some seconds (0: none), then a new drone at the launch point, the drone put away
+// (Mario takes over) or nothing (the view stays until the player respawns, recalls or moves
+// Mario there). Timed in game frames, so it pauses with the game.
+enum BoomView { BOOM_NONE, BOOM_SIGNAL_LOST, BOOM_CUTSCENE };
+static s32 sBoom;           // the view showing, BOOM_NONE: none
 static u32 sBoomFrames;     // game frames since the blast
-static u32 sBoomEndFrames;  // game frames the ending lasts
+static u32 sBoomEndFrames;  // game frames the view lasts
+static s32 sBoomForever;    // FPV_KAMIKAZE_THEN_NOTHING: until the player acts
+static u32 sBoomThen;       // fpv_kamikaze_ending_then after the view
 static float sBoomTime;     // sTime of the blast
 static Vec3f sBoomPos;
+static u32 sBlastFxFrame = 0xFFFF;  // game frames since the blast, for its explosions
+static s16 sBlastFxLevel, sBlastFxArea;
 static f32 sBoomCamYaw, sBoomCamReach;
 static fpv_kamikaze_state sWarhead;
 static u32 sDetonations;
@@ -153,6 +159,12 @@ static s32 sTestPilot; // look at Mario from the front instead of a drone camera
 static f32 sTestPilotYaw; // pilot=<degrees>: around him, 0 = straight in front
 static u32 sTestDrawnFrames; // displayed frames, for the test's framerate log
 static s32 sTestKamikaze; // kamikaze builds: arm the warhead and strike the Goomba
+#ifdef LIBFPV_KAMIKAZE
+static s32 sTestEndView = -1, sTestEndThen = -1; // ...overriding the player's ending (-1: theirs)
+static f32 sTestEndDur = -1.0f;
+static u16 sTestEndAct;   // ...and pressing this drone bind 0.5 s into the view
+static s32 sTestEndActDone;
+#endif
 static s32 sTestHere; // end the first flight with "Move Mario Here" instead of a recall
 static s32 sTestFar;  // move the first drone 30 m out at 2 s, past where the stand-in follows it
 static s32 sTestBowser; // kamikaze builds, in a Bowser arena: blast him where he stands until he's down
@@ -1055,10 +1067,13 @@ static void test_bowser(void) {
     cooldown = 150;
 }
 
-// a burst of the game's explosions: one at the blast, then a ring around it
-static void blast_effects(u32 frame) {
+// a burst of the game's explosions: one at the blast, then a ring around it (once per game
+// frame, whether or not the view after the blast still shows)
+static void blast_effects(void) {
     static const s8 ring[2][2][2] = { { { 1, 0 }, { -1, 0 } }, { { 0, 1 }, { 0, -1 } } };
-    if (gMarioObject == NULL) return;
+    if (sBlastFxFrame > 6) return;
+    u32 frame = sBlastFxFrame++;
+    if (gMarioObject == NULL || gCurrLevelNum != sBlastFxLevel || gCurrAreaIndex != sBlastFxArea) return;
     if (frame == 0) {
         spawn_object_abs_with_rot(gMarioObject, 0, MODEL_EXPLOSION, bhvExplosion, sBoomPos[0], sBoomPos[1],
                                   sBoomPos[2], 0, 0, 0);
@@ -1181,6 +1196,13 @@ void fpv_sm64_init(void) {
 #ifdef FPV_BF_CONFIG
     import_bf_config(dir);
 #endif
+#ifdef LIBFPV_KAMIKAZE
+    // every ending: both views, and a new drone, Mario back or nothing after them
+    fpv_kamikaze_set_ending_support((1u << FPV_KAMIKAZE_VIEW_SIGNAL_LOST) | (1u << FPV_KAMIKAZE_VIEW_CUTSCENE),
+                                    (1u << FPV_KAMIKAZE_THEN_RESPAWN) | (1u << FPV_KAMIKAZE_THEN_RECALL)
+                                        | (1u << FPV_KAMIKAZE_THEN_NOTHING),
+                                    FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_RESPAWN);
+#endif
     fpv_material lava = { 0.1f, 0.6f, FPV_MATERIAL_KILLS_PROPS };
     fpv_material none = { 0.2f, 0.6f, FPV_MATERIAL_NO_COLLISION | FPV_MATERIAL_TRANSPARENT_TO_VIDEO };
     fpv_material water = { 0.05f, 0.9f, FPV_MATERIAL_KILLS_PROPS | FPV_MATERIAL_TRANSPARENT_TO_VIDEO };
@@ -1210,8 +1232,26 @@ void fpv_sm64_init(void) {
 #ifdef LIBFPV_KAMIKAZE
         sTestKamikaze = strstr(test, "kamikaze") != NULL;
         if (sTestKamikaze) {
-            configFpvBoomEnding = strstr(test, "arcade") != NULL;
-            fpv_kamikaze_set_installed(1); // the player would tick it in F8 > Fly
+            // the ending, for this run only (the player's saved choice is left alone):
+            // signal lost then Mario, or cutscene then a new drone, unless then=/dur= say otherwise
+            const char *v;
+            s32 cutscene = strstr(test, "arcade") != NULL || strstr(test, "cutscene") != NULL;
+            sTestEndView = cutscene ? FPV_KAMIKAZE_VIEW_CUTSCENE : FPV_KAMIKAZE_VIEW_SIGNAL_LOST;
+            sTestEndThen = cutscene ? FPV_KAMIKAZE_THEN_RESPAWN : FPV_KAMIKAZE_THEN_RECALL;
+            sTestEndDur = 3.0f;
+            if ((v = strstr(test, "then=")) != NULL) {
+                v += 5;
+                sTestEndThen = !strncmp(v, "respawn", 7) ? FPV_KAMIKAZE_THEN_RESPAWN
+                             : !strncmp(v, "nothing", 7) ? FPV_KAMIKAZE_THEN_NOTHING : FPV_KAMIKAZE_THEN_RECALL;
+            }
+            if ((v = strstr(test, "dur=")) != NULL) sTestEndDur = atof(v + 4);
+            if ((v = strstr(test, "act=")) != NULL) {
+                v += 4;
+                sTestEndAct = !strncmp(v, "reset", 5)  ? FPV_BTN_RESET >> FPV_BTN_SHIFT
+                            : !strncmp(v, "here", 4)   ? FPV_BTN_HERE >> FPV_BTN_SHIFT
+                            : !strncmp(v, "recall", 6) ? FPV_BTN_TOGGLE >> FPV_BTN_SHIFT : 0;
+            }
+            fpv_kamikaze_set_installed(1); // the player would tick it in F8 > Kamikaze
         }
 #endif
         test_log("fpv test: level %d cam %d", sTestLevel, sTestCam);
@@ -1426,6 +1466,13 @@ void fpv_sm64_filter_pad(OSContPad *pad) {
             pad->ext_button |= (sTestHere ? FPV_BTN_HERE : FPV_BTN_TOGGLE) >> FPV_BTN_SHIFT;
             test_log(sTestHere ? "test: moving Mario under the drone" : "test: recalling the drone");
         }
+#ifdef LIBFPV_KAMIKAZE
+        if (sTestEndAct && !sTestEndActDone && sActive && sBoom != BOOM_NONE && sBoomFrames >= 15) {
+            pad->ext_button |= sTestEndAct;
+            sTestEndActDone = TRUE;
+            test_log("test: pressing drone bind 0x%x during the view", sTestEndAct);
+        }
+#endif
     }
     u16 ext = pad->ext_button;
     sPadPressed |= ext & ~sPadPrev;
@@ -1549,9 +1596,9 @@ static void test_update(void) {
                  sFrame.flags, sFrame.arming_disable_text, sFrame.impact_count, gMarioState->numCoins,
                  sFrame.video.noise, solids);
 #ifdef LIBFPV_KAMIKAZE
-        test_log("warhead %d (%.1f s) flags 0x%x payload %.0f g of %.0f g, detonations %u, ending %d frame %u",
+        test_log("warhead %d (%.1f s) flags 0x%x payload %.0f g of %.0f g, detonations %u, view %d frame %u, ui hidden %d",
                  sWarhead.warhead, sWarhead.arming_remaining, sWarhead.flags, sWarhead.payload_mass * 1000.0f,
-                 sWarhead.total_mass * 1000.0f, sDetonations, sBoom, sBoomFrames);
+                 sWarhead.total_mass * 1000.0f, sDetonations, sBoom, sBoomFrames, fpv_sm64_ui_hidden());
 #endif
         if (sTestClean) test_log("ui hidden %d, fov %.1f (aspect %.2f) -> %.1f at %ux%u", fpv_sm64_ui_hidden(),
                                  sFrame.camera.fov_y_degrees, sFrame.camera.aspect_hint, camera_fov(&sFrame.camera),
@@ -1567,27 +1614,42 @@ static u16 overlay_actions(void) {
         fpv_overlay_set_action(ACTION_CAMERA, sActive ? "Camera: FPV / chase / line of sight" : NULL);
         fpv_overlay_set_action(ACTION_HERE, sActive ? "Recall the drone and move Mario under it" : NULL);
     }
-#ifdef LIBFPV_KAMIKAZE
-    static s32 endingShown = -1;
-    if (endingShown != (s32) configFpvBoomEnding) {
-        endingShown = configFpvBoomEnding;
-        fpv_overlay_set_action(ACTION_ENDING, configFpvBoomEnding ? "After the explosion: arcade (click for signal lost)"
-                                                                  : "After the explosion: signal lost (click for arcade)");
-    }
-#endif
     u16 pressed = 0;
     for (uint32_t id; (id = fpv_overlay_poll_action()) != 0;) {
         if (id == ACTION_TOGGLE) pressed |= FPV_BTN_TOGGLE >> FPV_BTN_SHIFT;
         if (id == ACTION_RESET) pressed |= FPV_BTN_RESET >> FPV_BTN_SHIFT;
         if (id == ACTION_CAMERA) pressed |= FPV_BTN_CAMERA >> FPV_BTN_SHIFT;
         if (id == ACTION_HERE) pressed |= FPV_BTN_HERE >> FPV_BTN_SHIFT;
-        if (id == ACTION_ENDING) configFpvBoomEnding = !configFpvBoomEnding;
     }
     return pressed;
 }
 
 #ifdef LIBFPV_KAMIKAZE
 static void boom_camera_start(void);
+
+static const char *const sThenNames[] = { "respawn", "recall", "nothing" };
+
+// the view after the blast is over (or skipped): what the player chose for then; TRUE once
+// Mario has taken over
+static s32 boom_then(void) {
+    switch (sBoomThen) {
+        case FPV_KAMIKAZE_THEN_RECALL:
+            test_log("kamikaze: then recall, Mario takes over");
+            recall();
+            return TRUE;
+        case FPV_KAMIKAZE_THEN_NOTHING:
+            // the view stays until the player respawns, recalls or moves Mario there
+            if (sBoom == BOOM_NONE) sBoom = BOOM_SIGNAL_LOST; // nothing else to show of a wreck
+            sBoomForever = TRUE;
+            return FALSE;
+        default:
+            test_log("kamikaze: then respawn, a new drone");
+            fpv_drone_repair(sDrone); // a new, safe warhead
+            fpv_drone_reset(sDrone, sSpawnPos, sSpawnRot);
+            sBoom = BOOM_NONE;
+            return FALSE;
+    }
+}
 
 // detonations, and the ending after one; TRUE once Mario has taken over
 static s32 kamikaze_update(void) {
@@ -1604,32 +1666,43 @@ static s32 kamikaze_update(void) {
                  d.position[2], sqrtf(d.velocity[0] * d.velocity[0] + d.velocity[1] * d.velocity[1]
                                       + d.velocity[2] * d.velocity[2]) * 0.036f, d.object_id);
         blast(sBoomPos);
-        sBoom = configFpvBoomEnding ? BOOM_ARCADE : BOOM_SIGNAL_LOST;
-        sBoomFrames = 0;
-        sBoomTime = sTime;
+        sBlastFxFrame = 0;
+        sBlastFxLevel = gCurrLevelNum;
+        sBlastFxArea = gCurrAreaIndex;
+        blast_effects(); // the first explosion at once
+
+        // the player's ending (F8 > Kamikaze), read now
         fpv_kamikaze_config kc;
         memset(&kc, 0, sizeof(kc));
         kc.struct_size = sizeof(kc);
         kc.ending_duration = 3.0f;
+        kc.ending_view = FPV_KAMIKAZE_VIEW_SIGNAL_LOST;
+        kc.ending_then = FPV_KAMIKAZE_THEN_RESPAWN;
         fpv_kamikaze_get_config(&kc);
-        sBoomEndFrames = (u32)(kc.ending_duration * 30.0f + 0.5f);
-        if (sBoom == BOOM_ARCADE) boom_camera_start();
+        if (sTestEndView >= 0) kc.ending_view = (u32) sTestEndView;
+        if (sTestEndThen >= 0) kc.ending_then = (u32) sTestEndThen;
+        if (sTestEndDur >= 0.0f) kc.ending_duration = sTestEndDur;
+        if (kc.ending_then > FPV_KAMIKAZE_THEN_NOTHING) kc.ending_then = FPV_KAMIKAZE_THEN_RESPAWN;
+        f32 dur = kc.ending_duration < 0.0f ? 0.0f : kc.ending_duration > 30.0f ? 30.0f : kc.ending_duration;
+        sBoom = kc.ending_view == FPV_KAMIKAZE_VIEW_CUTSCENE ? BOOM_CUTSCENE : BOOM_SIGNAL_LOST;
+        sBoomThen = kc.ending_then;
+        sBoomForever = sBoomThen == FPV_KAMIKAZE_THEN_NOTHING;
+        sBoomFrames = 0;
+        sBoomEndFrames = (u32)(dur * 30.0f + 0.5f);
+        sBoomTime = sTime;
+        test_log("kamikaze: view %s for %.1f s, then %s", sBoom == BOOM_CUTSCENE ? "cutscene" : "signal lost", dur,
+                 sThenNames[sBoomThen]);
+        if (sBoom == BOOM_CUTSCENE) boom_camera_start();
         d.struct_size = sizeof(d);
+        // 0 s: no view, straight to what follows it (nothing: the view anyway, as there is nothing else)
+        if (sBoomEndFrames == 0 && !sBoomForever) {
+            sBoom = BOOM_NONE;
+            if (boom_then()) return TRUE;
+        }
     }
     if (sBoom == BOOM_NONE) return FALSE;
-    blast_effects(sBoomFrames);
-    if (++sBoomFrames >= sBoomEndFrames) {
-        if (sBoom == BOOM_ARCADE) {
-            test_log("kamikaze: ending %d over, a new drone", sBoom);
-            fpv_drone_repair(sDrone); // a new, safe warhead
-            fpv_drone_reset(sDrone, sSpawnPos, sSpawnRot);
-            sBoom = BOOM_NONE;
-            return FALSE;
-        }
-        test_log("kamikaze: ending %d over, Mario takes over", sBoom);
-        recall();
-        return TRUE;
-    }
+    sBoomFrames++;
+    if (!sBoomForever && sBoomFrames >= sBoomEndFrames) return boom_then();
     return FALSE;
 }
 #endif
@@ -1642,14 +1715,17 @@ static s32 deadly_floor(s16 type) {
 
 // "Move Mario Here": recall the drone and put Mario on the ground under it, facing where it
 // faced (gtaiv-fpv's "Move Niko here"). FALSE, and the flight goes on, without a safe floor.
+// After a blast, under where it went off: the view after it ends there.
 static s32 move_mario_here(struct MarioState *m) {
-    s32 wrecked = !sHaveFrame;
-#ifdef LIBFPV_KAMIKAZE
-    wrecked = wrecked || sBoom != BOOM_NONE || (sFrame.flags & FPV_DRONE_DETONATED);
-#endif
     struct Surface *floor = NULL;
-    f32 x = sFrame.position[0], z = sFrame.position[2];
-    f32 y = wrecked ? 0.0f : find_floor(x, sFrame.position[1], z, &floor);
+    f32 x = sFrame.position[0], y0 = sFrame.position[1], z = sFrame.position[2];
+#ifdef LIBFPV_KAMIKAZE
+    if (sBoom != BOOM_NONE) {
+        x = sBoomPos[0], y0 = sBoomPos[1] + 50.0f, z = sBoomPos[2];
+        test_log("kamikaze: Move Mario Here during the view");
+    }
+#endif
+    f32 y = sHaveFrame ? find_floor(x, y0, z, &floor) : 0.0f;
     if (floor == NULL || deadly_floor(floor->type)) {
         test_log("move here: no safe floor under %.0f %.0f %.0f", x, sFrame.position[1], z);
         play_sound(SOUND_MENU_CAMERA_BUZZ, gDefaultSoundArgs);
@@ -1732,6 +1808,7 @@ void fpv_sm64_update(void) {
     if (!sInited) return;
 #ifdef LIBFPV_KAMIKAZE
     finish_victims();
+    blast_effects();
 #endif
     test_update();
     struct MarioState *m = gMarioState;
@@ -1744,6 +1821,9 @@ void fpv_sm64_update(void) {
         s32 marioBusy = m->health < 0x100 || (m->action & ACT_FLAG_INTANGIBLE) || gWarpTransition.isActive;
         if (lost) sDroneObj = NULL; // unloaded with the area
         if (lost || marioBusy || (pressed & (FPV_BTN_TOGGLE >> FPV_BTN_SHIFT))) {
+#ifdef LIBFPV_KAMIKAZE
+            if (sBoom != BOOM_NONE) test_log("kamikaze: recall during the view");
+#endif
             recall();
             return;
         }
@@ -1763,6 +1843,7 @@ void fpv_sm64_update(void) {
         fpv_drone_repair(sDrone); // kamikaze builds: a new, safe warhead
         fpv_drone_reset(sDrone, sSpawnPos, sSpawnRot);
 #ifdef LIBFPV_KAMIKAZE
+        if (sBoom != BOOM_NONE) test_log("kamikaze: respawn during the view");
         sBoom = BOOM_NONE; // the next drone, straight away
 #endif
     }
@@ -1954,7 +2035,7 @@ static const fpv_camera *active_camera(void) {
     if (sTestPilot) return pilot_test_camera();
 #ifdef LIBFPV_KAMIKAZE
     if (sBoom == BOOM_SIGNAL_LOST) return &sFrame.camera;
-    if (sBoom == BOOM_ARCADE) return boom_camera();
+    if (sBoom == BOOM_CUTSCENE) return boom_camera();
 #endif
     switch (sCamMode) {
         case CAM_CHASE: return &sFrame.chase_camera;
@@ -2087,7 +2168,7 @@ void fpv_sm64_gfx_frame_done(int width, int height) {
         marioShot = 1;
     }
 #ifdef LIBFPV_KAMIKAZE
-    // kamikaze test: the ending, then Mario back in control (or the new drone, arcade)
+    // kamikaze test: the view after the blast, then Mario back in control or the new drone
     static int boomShot, afterFrames;
     if (sTestLevel && sBoom != BOOM_NONE && boomShot < 2 && sBoomFrames >= (boomShot ? 25u : 8u)) {
         char path[SYS_MAX_PATH];
