@@ -1095,7 +1095,8 @@ static void blast_effects(void) {
     if (frame == 0) {
         spawn_object_abs_with_rot(gMarioObject, 0, MODEL_EXPLOSION, bhvExplosion, sBoomPos[0], sBoomPos[1],
                                   sBoomPos[2], 0, 0, 0);
-    } else if (frame == 3 || frame == 6) {
+    } else if ((frame == 3 || frame == 6) && find_water_level(sBoomPos[0], sBoomPos[2]) <= sBoomPos[1]) {
+        // (not underwater: there each explosion spawns 40 bubbles, one is plenty)
         for (int i = 0; i < 2; i++) {
             const s8 *d = ring[frame / 6][i];
             spawn_object_abs_with_rot(gMarioObject, 0, MODEL_EXPLOSION, bhvExplosion, sBoomPos[0] + d[0] * 130.0f,
