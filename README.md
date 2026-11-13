@@ -12,7 +12,7 @@ Run `./extract_assets.py --clean && make clean` or `make distclean` to remove RO
 ## FPV drone features
 
  * Betaflight in the loop via libfpv: real rates, modes and filters. Betaflight Configurator can connect over `ws://localhost:5761`.
- * Collision with the whole level and with every object collision model (moving platforms, doors, Whomps...). Water and lava destroy the props, and so do flames, explosions and the enemies and shots that would hurt Mario.
+ * Collision with the whole level and with every object collision model (moving platforms, doors, Whomps...). The drone can sink into water, which wears its props away; lava burns them, and so do flames, explosions and the enemies and shots that would hurt Mario.
  * The drone collects coins, stars, keys and 1-ups, and knocks out Goombas, Koopas, Bob-ombs and other enemies when it hits them fast enough.
  * FPV, chase and line-of-sight cameras with full rotation, a spherical skybox, lens distortion and analog video noise that grows with distance from Mario.
  * Betaflight OSD and the libfpv overlay (F8) for radio setup, presets, rates, camera settings and the Betaflight CLI.
@@ -67,7 +67,7 @@ Windows builds are cross-compiled from Linux (WSL works) with MinGW-w64. The com
    x86_64-w64-mingw32-ar rcs $DEPS/x86_64-w64-mingw32/lib/libglew32.a glew.o
    ```
 
-3. Build libfpv for Windows into its `build/win` folder (`build/win-kamikaze` for the [kamikaze drone](FPV_DRONE.md#building)), as its README describes.
+3. Build libfpv for Windows into its `build/win` folder, as its README describes.
 
 4. Build the game:
 
@@ -76,7 +76,7 @@ Windows builds are cross-compiled from Linux (WSL works) with MinGW-w64. The com
         SDLCONFIG=$HOME/mingw-deps/x86_64-w64-mingw32/bin/sdl2-config
    ```
 
-   Add `FPV_KAMIKAZE=1` for the kamikaze drone. Don't pass `CC`/`CXX`: they are derived from `CROSS`, and the build tools under `tools/` must stay native Linux binaries (`TOOLS_CC`/`TOOLS_CXX` choose their compiler). If they were ever built with MinGW, run `make cleantools`.
+   Don't pass `CC`/`CXX`: they are derived from `CROSS`, and the build tools under `tools/` must stay native Linux binaries (`TOOLS_CC`/`TOOLS_CXX` choose their compiler). If they were ever built with MinGW, run `make cleantools`.
 
 The result is `build/us_pc/sm64.us.f3dex2e.exe` with `libfpv.dll` next to it. SDL2, GLEW and the MinGW runtime are linked statically, so these two files only depend on Windows system DLLs.
 

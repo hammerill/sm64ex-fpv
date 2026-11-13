@@ -42,9 +42,9 @@ jobs:
       - name: Build libfpv
         run: |
           source ~/emsdk/emsdk_env.sh
-          emcmake cmake -S libfpv -B libfpv/build/web-kamikaze \
-            -DLIBFPV_KAMIKAZE=ON -DLIBFPV_BUILD_TESTS=OFF -DLIBFPV_BUILD_EXAMPLES=OFF
-          cmake --build libfpv/build/web-kamikaze -j"$(nproc)"
+          emcmake cmake -S libfpv -B libfpv/build/web \
+            -DLIBFPV_BUILD_TESTS=OFF -DLIBFPV_BUILD_EXAMPLES=OFF
+          cmake --build libfpv/build/web -j"$(nproc)"
 
       - name: Base ROM
         env:

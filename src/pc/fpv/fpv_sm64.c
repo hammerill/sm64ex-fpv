@@ -5,12 +5,19 @@
 // "Pilot View" bind (F) gives Mario back to the player with the drone left flying
 // in the world, and F7 goes back to it (libfpv's standard keys).
 // The drone collides with the level (static surfaces exported once per area,
-// object collision models as moving libfpv surface objects, water and lava
-// kill the props), collects coins, stars and 1-ups, and knocks out enemies it
+// object collision models as moving libfpv surface objects; water is no obstacle and
+// lava a floor, both wear the props away), collects coins, stars and 1-ups, and knocks out enemies it
 // hits at speed. World units: 100 per metre, so Mario is about 1.6 m tall.
 // With a kamikaze build of libfpv (LIBFPV_KAMIKAZE), the drone can carry a
 // warhead (F8 > Kamikaze > "Bomb installed"): its blast slays the enemies around it
 // and hits the bosses. What follows the blast is the player's (F8 > Kamikaze).
+// Local development builds only, never in the docs, CI or the web build (libfpv's AGENTS.md):
+// build libfpv with -DLIBFPV_KAMIKAZE=ON into its build folder with a -kamikaze suffix
+// (build/mac-kamikaze...) and the game with FPV_KAMIKAZE=1. The two must match (fpv_frame has
+// two more channels in kamikaze builds): make clean when switching. Self test flags, after
+// SM64_FPV_TEST's others: ,kamikaze[,cutscene][,then=respawn|recall|nothing][,dur=<s>]
+// [,act=reset|recall|here] strikes the Goomba with a live warhead and saves fpv_shot_boom*.bmp;
+// ,bowser[,zombie] (in a Bowser arena: 30, 33 or 34) blasts Bowser every 5 s.
 
 #ifdef FPV_DRONE
 
@@ -87,7 +94,6 @@ u32 attack_object(struct Object *o, s32 interaction);
 #define MAT_DEFAULT 0
 #define MAT_LAVA 1
 #define MAT_NONE 2
-#define MAT_WATER 3
 
 enum CamMode { CAM_FPV, CAM_CHASE, CAM_LOS, CAM_COUNT };
 // buttons in the overlay's Fly tab (F8), the same as the drone binds
@@ -127,8 +133,6 @@ static Vec3f sPrevPos;
 
 static u32 sTerrainGen = 1, sLoadedTerrainGen;
 static s16 sLoadedTerrainLevel = -1, sLoadedTerrainArea = -1;
-static u32 sWaterId;
-static float sWaterLevel = -20000.0f;
 
 static struct Object *sDroneObj;
 static Mat4 sDroneMtx;
@@ -808,38 +812,6 @@ static void clear_solids(void) {
     memset(sSolids, 0, sizeof(sSolids));
 }
 
-// One huge plane that follows the water level under the drone: entering water
-// (from above or through the side of a water box) kills the props.
-static void create_water(void) {
-    static const float pos[12] = { -20000, 0, -20000, 20000, 0, -20000, 20000, 0, 20000, -20000, 0, 20000 };
-    static const u32 idx[6] = { 0, 1, 2, 0, 2, 3 };
-    fpv_mesh mesh;
-    memset(&mesh, 0, sizeof(mesh));
-    mesh.positions = pos;
-    mesh.vertex_count = 4;
-    mesh.indices = idx;
-    mesh.triangle_count = 2;
-    mesh.material = MAT_WATER;
-    fpv_transform t;
-    memset(&t, 0, sizeof(t));
-    t.rotation[3] = 1.0f;
-    t.position[1] = sWaterLevel = -20000.0f;
-    if (fpv_surface_object_create(&mesh, &t, &sWaterId) != FPV_OK) sWaterId = 0;
-}
-
-static void update_water(void) {
-    if (!sWaterId || !sHaveFrame) return;
-    f32 level = find_water_level(sFrame.position[0], sFrame.position[2]);
-    if (level < -10000.0f) level = -20000.0f;
-    if (level != sWaterLevel) {
-        fpv_transform t;
-        memset(&t, 0, sizeof(t));
-        t.rotation[3] = 1.0f;
-        t.position[1] = sWaterLevel = level;
-        fpv_surface_object_move(sWaterId, &t);
-    }
-}
-
 // --- interactions --------------------------------------------------------------------------
 
 static s32 is_1up(struct Object *o) {
@@ -1135,11 +1107,15 @@ static void blast_effects(void) {
 
 // --- damage ------------------------------------------------------------------------------
 // Everything that looks like it could break a prop breaks it (libfpv docs/INTEGRATION.md#damage).
-// libfpv sees water and lava (their surfaces kill the props); the game tells it about flames,
-// explosions, and the enemies and shots that would hurt Mario. libfpv ignores all of it while
+// The game tells libfpv about all of it, a little every frame or in one hit: water and lava,
+// flames, explosions, and the enemies and shots that would hurt Mario. libfpv ignores all of it while
 // the player has damage off (F8 > Drone), so it is called whatever the setting.
 
 #define FIRE_DAMAGE_PER_S 0.5f  // on all four, every game frame in the flames
+#define WATER_DAMAGE_PER_S 1.0f // on each prop under the surface
+#define WATER_DRAG 6.0f         // 1/s: the water holds the drone back, it sinks through it slowly
+#define LAVA_DAMAGE_PER_S 2.0f  // on each prop near the lava
+#define LAVA_REACH 25.0f        // units over the lava where its heat reaches a prop
 #define HIT_DAMAGE 0.6f         // on the prop nearest to the hit
 #define HIT_COOLDOWN 15         // game frames before the same object hurts a prop again
 #define EXPLOSION_RADIUS 300.0f // the game's explosions, about a Bob-omb's
@@ -1201,6 +1177,28 @@ static void explosions(void) {
         if (sHaveFrame && dx * dx + dy * dy + dz * dz < EXPLOSION_RADIUS * EXPLOSION_RADIUS) {
             test_log("explosion %.0f units from the drone: props broken", sqrtf(dx * dx + dy * dy + dz * dz));
             fpv_drone_damage_props(sDrone, -1, 1.0f);
+        }
+    }
+}
+
+// Water is no obstacle: the drone goes in, slowed down as through water, and every prop under
+// the surface wears away until it breaks. Lava is a floor that burns the props near it.
+static void liquids(void) {
+    if (!sHaveFrame) return;
+    if (sFrame.position[1] < find_water_level(sFrame.position[0], sFrame.position[2])) {
+        f32 k = -(1.0f - expf(-WATER_DRAG / 30.0f));
+        float dv[3] = { sFrame.velocity[0] * k, sFrame.velocity[1] * k, sFrame.velocity[2] * k };
+        fpv_drone_push(sDrone, dv, FALSE);
+    }
+    for (int i = 0; i < 4; i++) {
+        float w[3];
+        quat_rotate(sFrame.rotation, sFrame.motors[i].position, w);
+        f32 x = sFrame.position[0] + w[0], y = sFrame.position[1] + w[1], z = sFrame.position[2] + w[2];
+        if (y < find_water_level(x, z)) fpv_drone_damage_props(sDrone, i, WATER_DAMAGE_PER_S / 30.0f);
+        struct Surface *floor = NULL;
+        f32 floorY = find_floor(x, y, z, &floor);
+        if (floor != NULL && floor->type == SURFACE_BURNING && y - floorY < LAVA_REACH) {
+            fpv_drone_damage_props(sDrone, i, LAVA_DAMAGE_PER_S / 30.0f);
         }
     }
 }
@@ -1555,12 +1553,10 @@ void fpv_sm64_init(void) {
                                         | (1u << FPV_KAMIKAZE_THEN_NOTHING),
                                     FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_RESPAWN);
 #endif
-    fpv_material lava = { 0.1f, 0.6f, FPV_MATERIAL_KILLS_PROPS };
+    fpv_material lava = { 0.1f, 0.6f, 0 }; // burns the props near it (liquids)
     fpv_material none = { 0.2f, 0.6f, FPV_MATERIAL_NO_COLLISION | FPV_MATERIAL_TRANSPARENT_TO_VIDEO };
-    fpv_material water = { 0.05f, 0.9f, FPV_MATERIAL_KILLS_PROPS | FPV_MATERIAL_TRANSPARENT_TO_VIDEO };
     fpv_material_set(MAT_LAVA, &lava);
     fpv_material_set(MAT_NONE, &none);
-    fpv_material_set(MAT_WATER, &water);
     fpv_audio_configure(32000, 2);
     init_drone_nodes();
     init_radio();
@@ -1737,7 +1733,6 @@ static void deploy(struct MarioState *m) {
         sDroneObj->header.gfx.sharedChild = &sBodyNode.fnNode.node;
         sDroneObj->oFlags &= ~OBJ_FLAG_UPDATE_GFX_POS_AND_ANGLE;
     }
-    create_water();
 #ifdef LIBFPV_KAMIKAZE
     fpv_detonation d;
     d.struct_size = sizeof(d);
@@ -1760,8 +1755,6 @@ static void recall(void) {
     if (!sActive) return;
     release_keys();
     clear_solids();
-    if (sWaterId) fpv_surface_object_delete(sWaterId);
-    sWaterId = 0;
     if (sDrone) fpv_drone_delete(sDrone);
     sDrone = NULL;
     if (sDroneObj) {
@@ -2371,8 +2364,8 @@ void fpv_sm64_update(void) {
     update_weather();
     update_gusts();
     sync_solids();
-    update_water();
     explosions();
+    liquids();
     // the flight itself is simulated once per displayed frame, in fpv_sm64_frame_tick
     sUpdateTimer = gGlobalTimer;
     update_drone_object();

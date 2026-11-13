@@ -54,11 +54,7 @@ DISCORDRPC ?= 0
 # Enable the FPV drone (links libfpv from a libfpv checkout and its build folder)
 FPV_DRONE ?= 0
 LIBFPV_DIR ?= ../libfpv
-# Kamikaze drone: needs libfpv built with -DLIBFPV_KAMIKAZE=ON (build folders get a -kamikaze suffix);
-# on by default for the web, like libfpv's web demo
-ifeq ($(TARGET_WEB),1)
-  FPV_KAMIKAZE ?= 1
-endif
+# Kamikaze drone: needs libfpv built with -DLIBFPV_KAMIKAZE=ON (build folders get a -kamikaze suffix)
 FPV_KAMIKAZE ?= 0
 # Betaflight `diff all` imported on the first run; web builds default to the one of libfpv's web demo
 # (FPV_BF_CONFIG= to start from libfpv's defaults)

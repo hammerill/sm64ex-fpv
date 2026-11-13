@@ -19,8 +19,10 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
 ## What the drone does
 
 - **Collision.** It collides with the whole level, plus moving platforms,
-  doors, Whomps and anything else with a collision model. Hitting lava or water
-  destroys the propellers.
+  doors, Whomps and anything else with a collision model. Water is no
+  obstacle: the drone goes in, slowed down, and each prop under the surface
+  wears away (a whole prop in about a second). Lava is a floor that burns the
+  props near it (in about half a second).
 - **Damage.** Whatever would hurt Mario hurts the props: flames burn all four
   (about half a prop a second), the game's explosions (Bob-ombs, Bowser's
   mines) break all four within 3 m, and enemies, shots, Amps, Bubba and the
@@ -64,46 +66,6 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
   or the level or area changes.
 - **GPS.** Mario is the GPS home point, so the OSD's home arrow and home
   distance (enable them in the Configurator's OSD tab) always lead back to him.
-
-## Kamikaze drone
-
-With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
-(see Building), the drone can carry a warhead. Without them nothing changes.
-
-- **Installing.** The bomb is not installed by default: the drone flies like
-  in any other build until it is ticked in F8 > Kamikaze > "Bomb installed". It
-  is a choice per quad (preset), saved by libfpv, and every new or repaired
-  drone of that quad carries it.
-- **Arming.** The motors only arm with the bomb arm switch (AUX7) off. Take
-  off, flip it, and the warhead is live (OSD `BOMB_ARMED`; with an arming delay
-  set in F8 > Kamikaze, `ARMING 3` first). K toggles it on the keyboard, X (West)
-  on a gamepad; F8 > Kamikaze > "Bomb switches" binds AUX7/AUX8 on a radio. The bomb status is a Betaflight OSD element ("Custom message
-  1"): move or hide it in F8 > OSD > "Bomb status" or the Configurator.
-- **Detonation.** A live warhead goes off on any touch, including a light tap
-  on the ground and any enemy or boss, or on the explode switch (AUX8; X held
-  on the keyboard, the right shoulder on a gamepad). With the bomb switch off
-  nothing explodes.
-- **Blast.** A burst of the game's explosions. Every enemy within 5 m is
-  slain: through the game's own defeat where an attack has one (so it drops
-  its coins and the level counts it), and otherwise on the spot. Bob-ombs go
-  off too. Each boss in range takes one hit, the way Mario hurts it: King
-  Bob-omb, King Whomp, the Big Boos, Wiggler, Eyerok's hands and Bowser lose
-  one health, and the big bullies are blown away (into the lava if it is
-  close). Mario is hurt if he stands in the explosion itself.
-- **After the explosion.** libfpv's F8 > Kamikaze tab picks the ending (saved
-  by libfpv; every choice is supported). First a view: **Signal lost**
-  (default) keeps the goggles on screen, static with a blank OSD
-  and none of the game's HUD over it, like a real lost feed; **Cutscene** shows
-  the blast from the pilot's side, short of walls. It lasts the chosen time
-  (3 s by default, 0 skips it), counted in game frames, so it pauses with the
-  game. Then: **Respawn** (default, a new drone at the launch point),
-  **Recall** (the drone is put away and Mario takes over) or **Nothing** (the
-  view stays until the player acts). During the view, Drone Reset, Drone
-  Toggle and Move Mario Here (which puts him under the blast) work at once
-  and replace what would follow.
-- **Payload, arming delay and fuse.** The warhead is real weight (by default
-  60 % of the quad). F8 > Kamikaze tunes it, the arming delay (none by default) and
-  the impact fuse.
 
 ## Controls
 
@@ -171,17 +133,6 @@ Build libfpv first (see its README), then build sm64ex with `FPV_DRONE=1`.
 `LIBFPV_DIR` defaults to `../libfpv`. `LIBFPV_BUILD` defaults to its `build/win`
 folder for Windows builds, `build/mac` on macOS and `build/linux` otherwise.
 
-For the kamikaze drone, build libfpv with `-DLIBFPV_KAMIKAZE=ON` into the same
-folder with a `-kamikaze` suffix (`build/mac-kamikaze`...) and add
-`FPV_KAMIKAZE=1`. When switching between the two variants, `make clean` (or
-touch the files that include `libfpv.h`): `fpv_frame` has two more channels
-in kamikaze builds.
-
-```sh
-cmake -S ../libfpv -B ../libfpv/build/mac-kamikaze -DLIBFPV_KAMIKAZE=ON && cmake --build ../libfpv/build/mac-kamikaze -j
-make FPV_DRONE=1 FPV_KAMIKAZE=1
-```
-
 ```sh
 # Linux or macOS
 make FPV_DRONE=1
@@ -198,11 +149,6 @@ pass and no video feed). The video feed comes from libfpv's
 `docs/renderers/fpv_video_gl2.h` (OpenGL 2.1 / GLES 2), on the include path
 with `FPV_DRONE=1`.
 
-The libfpv build must match `FPV_KAMIKAZE`: a kamikaze libfpv has two more
-channels in `fpv_frame`, so a game built without `FPV_KAMIKAZE=1` reads every
-field after them (the video feed, the wind, the cargo) from the wrong place.
-Check `LIBFPV_KAMIKAZE` in the libfpv build folder's `CMakeCache.txt`.
-
 To start every new player from your own Betaflight setup, pass a `diff all`
 file as `FPV_BF_CONFIG=<file>`. It is imported on the first run and the
 player's later changes are kept.
@@ -210,22 +156,22 @@ player's later changes are kept.
 ### Web
 
 The game, the mod and libfpv compile into one WebAssembly module (libfpv's
-`docs/WEB.md`). Build libfpv for the web first, the way its web demo is built
-(kamikaze), then the game with `TARGET_WEB=1`:
+`docs/WEB.md`). Build libfpv for the web first, then the game with
+`TARGET_WEB=1`:
 
 ```sh
 source /path/to/emsdk/emsdk_env.sh
-emcmake cmake -S ../libfpv -B ../libfpv/build/web-kamikaze -DLIBFPV_KAMIKAZE=ON && cmake --build ../libfpv/build/web-kamikaze -j
+emcmake cmake -S ../libfpv -B ../libfpv/build/web && cmake --build ../libfpv/build/web -j
 make TARGET_WEB=1 FPV_DRONE=1 -j
 python3 -m http.server -d build/us_web 8080   # then open http://localhost:8080/sm64.us.f3dex2e.html
 ```
 
-Web builds default to `FPV_KAMIKAZE=1` and to the `diff all` of libfpv's web
-demo (`FPV_BF_CONFIG=../libfpv/assets/configs/hammerill.diff.txt`); pass
-`FPV_KAMIKAZE=0` (with libfpv in `build/web`) or `FPV_BF_CONFIG=` to change
-that. `build/us_web` then holds the page: the `.html`, `.js` and `.wasm`, ready
-for any static host (rename the `.html` to `index.html` if you like). The page
-is `web/shell.html`.
+Web builds default to the `diff all` of libfpv's web demo
+(`FPV_BF_CONFIG=../libfpv/assets/configs/hammerill.diff.txt`); pass
+`FPV_BF_CONFIG=` to start from libfpv's defaults instead. `build/us_web` then
+holds the page: the `.html`, `.js` and `.wasm`, ready for any static host
+(rename the `.html` to `index.html` if you like). The page is
+`web/shell.html`.
 
 In the browser, the game's config, the drone settings, EEPROMs and radio
 mappings are kept in the browser's IndexedDB (`/libfpv`), and the save file in
@@ -235,7 +181,7 @@ Betaflight CLI is in F8 > Import & CLI.
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,fview][,wind][,kamikaze[,cutscene][,then=respawn|recall|nothing][,dur=<s>][,act=reset|recall|here]][,bowser[,zombie]]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,fview][,wind]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
@@ -247,18 +193,6 @@ a drone camera, from in front of him or `<degrees>` around him.
 the drone) at 6 s, logging Mario's action and the view. Test flights are in
 still air unless `wind` gives them the level's breeze. `far`
 moves the first drone 30 m out after 2 s and logs the stand-in.
-`kamikaze` (kamikaze builds) installs the bomb, turns the bomb arm switch on after take-off and
-strikes the Goomba. The ending is set for the run only (the player's saved
-choice is untouched): signal lost for 3 s then recall (Mario takes over, and
-the test redeploys), or with `cutscene` (or `arcade`) the cutscene then a
-respawn. `then=`, `dur=` (seconds, 0 = no view) override the rest; `act=`
-presses Drone Reset, Drone Launch or Move Mario Here 0.5 s into the view to
-check that it cancels the timer. It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
-and `fpv_shot_after.bmp`.
-`bowser` (kamikaze builds, in a Bowser arena: 30, 33 or 34) skips the drone and
-sets off a blast on Bowser wherever he stands every 5 s while he fights, logging
-his action, health and position, to check that he stays down after the last
-one. `zombie` starts him with no health, as an older build could leave him.
 
 ## How it hooks the game
 
@@ -283,8 +217,7 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
   to the drone around each object's update while it follows the drone, and
   `mario_ready_to_speak` in `mario_actions_cutscene.c` says no meanwhile.
 - **UI.** `area.c` drops the HUD and text labels from the display list while
-  the OSD disable switch is on in the FPV view, and over the static after a
-  kamikaze blast.
+  the OSD disable switch is on in the FPV view.
 - **Input.** Four new binds are added to the configuration, the options menu
   and the keyboard/SDL2 controllers. Window events are forwarded to libfpv in
   `gfx_sdl2.c`.
@@ -296,9 +229,6 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
   only while the radio is in use, and Mario leaves it in the pilot view.
 - **Wind.** `cur_obj_spawn_strong_wind_particles` reports the Fwooshes' and the
   snowman's gusts.
-- **Kamikaze.** Everything else is in `fpv_sm64.c` under `LIBFPV_KAMIKAZE`. It
-  tells libfpv it supports every ending (`fpv_kamikaze_set_ending_support`)
-  and reads the player's choice at each detonation.
 - **Framerate.** `pc_main.c` runs a game frame every 33 ms and calls
   `fpv_sm64_frame_tick` before each displayed frame. `rendering_graph_node.c`
   takes the drone camera live when it blends a frame, moves the drone model to
