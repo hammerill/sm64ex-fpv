@@ -12,11 +12,13 @@ Run `./extract_assets.py --clean && make clean` or `make distclean` to remove RO
 ## FPV drone features
 
  * Betaflight in the loop via libfpv: real rates, modes and filters. Betaflight Configurator can connect over `ws://localhost:5761`.
- * Collision with the whole level and with every object collision model (moving platforms, doors, Whomps...). Water and lava destroy the props.
+ * Collision with the whole level and with every object collision model (moving platforms, doors, Whomps...). Water and lava destroy the props, and so do flames, explosions and the enemies and shots that would hurt Mario.
  * The drone collects coins, stars, keys and 1-ups, and knocks out Goombas, Koopas, Bob-ombs and other enemies when it hits them fast enough.
  * FPV, chase and line-of-sight cameras with full rotation, a spherical skybox, lens distortion and analog video noise that grows with distance from Mario.
  * Betaflight OSD and the libfpv overlay (F8) for radio setup, presets, rates, camera settings and the Betaflight CLI.
- * Motor sound mixed into the game audio.
+ * Motor sound mixed into the game audio, heard from Mario when the drone is heard from the pilot.
+ * Pilot view (F): Mario walks again while the drone stays in the world, flown by the radio.
+ * A light breeze in every outdoor level, and the Fwooshes and Snowman's Land's snowman blow the drone away.
  * Rebindable drone controls in Options > Controls.
  * A scripted self-test (`SM64_FPV_TEST`) that flies a route and saves telemetry and screenshots.
 
@@ -24,8 +26,9 @@ Run `./extract_assets.py --clean && make clean` or `make distclean` to remove RO
 
 | Action | Keyboard | Gamepad |
 |---|---|---|
-| Deploy / recall the drone | F | Back / Select |
-| Repair and respawn at the launch point | R | D-pad up |
+| Launch / recall the drone, back to it after F | F7 | Back / Select |
+| Back to Mario, the drone left flying | F | D-pad left |
+| Repair and respawn the drone | R | D-pad up |
 | Camera: FPV / chase / line of sight | V | D-pad right |
 | libfpv overlay | F8 | |
 

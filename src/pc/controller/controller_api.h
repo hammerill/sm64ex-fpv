@@ -23,7 +23,8 @@
 #define FPV_BTN_RESET  0x200000
 #define FPV_BTN_CAMERA 0x400000
 #define FPV_BTN_HERE   0x800000
-#define FPV_BTN_MASK   0xF00000
+#define FPV_BTN_PILOT  0x1000000
+#define FPV_BTN_MASK   0x1F00000
 
 #include <ultra64.h>
 

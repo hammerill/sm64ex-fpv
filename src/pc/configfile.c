@@ -70,11 +70,12 @@ unsigned int configKeyStickUp[MAX_BINDS]    = { 0x0011,   VK_INVALID, VK_INVALID
 unsigned int configKeyStickDown[MAX_BINDS]  = { 0x001F,   VK_INVALID, VK_INVALID };
 unsigned int configKeyStickLeft[MAX_BINDS]  = { 0x001E,   VK_INVALID, VK_INVALID };
 unsigned int configKeyStickRight[MAX_BINDS] = { 0x0020,   VK_INVALID, VK_INVALID };
-// FPV drone: F / Back, R / D-pad up, V / D-pad right, Y / D-pad down
-unsigned int configKeyFpvToggle[MAX_BINDS]  = { 0x0021,   0x1004,     VK_INVALID };
+// FPV drone: F7 / Back, R / D-pad up, V / D-pad right, Y / D-pad down, F / D-pad left
+unsigned int configKeyFpvToggle[MAX_BINDS]  = { 0x0041,   0x1004,     VK_INVALID };
 unsigned int configKeyFpvReset[MAX_BINDS]   = { 0x0013,   0x100B,     VK_INVALID };
 unsigned int configKeyFpvCamera[MAX_BINDS]  = { 0x002F,   0x100E,     VK_INVALID };
 unsigned int configKeyFpvHere[MAX_BINDS]    = { 0x0015,   0x100C,     VK_INVALID };
+unsigned int configKeyFpvPilot[MAX_BINDS]   = { 0x0021,   0x100D,     VK_INVALID };
 unsigned int configStickDeadzone = 16; // 16*DEADZONE_STEP=4960 (the original default deadzone)
 unsigned int configRumbleStrength = 50;
 #ifdef EXTERNAL_DATA
@@ -131,6 +132,7 @@ static const struct ConfigOption options[] = {
     {.name = "key_fpv_reset",        .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvReset},
     {.name = "key_fpv_camera",       .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvCamera},
     {.name = "key_fpv_here",         .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvHere},
+    {.name = "key_fpv_pilot",        .type = CONFIG_TYPE_BIND, .uintValue = configKeyFpvPilot},
     {.name = "stick_deadzone",       .type = CONFIG_TYPE_UINT, .uintValue = &configStickDeadzone},
     {.name = "rumble_strength",      .type = CONFIG_TYPE_UINT, .uintValue = &configRumbleStrength},
     #ifdef EXTERNAL_DATA
@@ -249,6 +251,8 @@ void configfile_load(const char *filename) {
         return;
     }
 
+    bool fpvPilotSaved = false;
+
     // Go through each line in the file
     while ((line = read_file_line(file)) != NULL) {
         char *p = line;
@@ -295,6 +299,7 @@ void configfile_load(const char *filename) {
                         default:
                             assert(0); // bad type
                     }
+                    if (option->uintValue == configKeyFpvPilot) fpvPilotSaved = true;
                     printf("option: '%s', value:", tokens[0]);
                     for (int i = 1; i < numTokens; ++i) printf(" '%s'", tokens[i]);
                     printf("\n");
@@ -306,6 +311,13 @@ void configfile_load(const char *filename) {
     }
 
     fs_close(file);
+
+    // Configs from before the pilot view had Drone Toggle on F, which is now the pilot view's
+    // (libfpv's standard keys: F7 launches, F goes back to the pilot): move it to F7
+    if (!fpvPilotSaved) {
+        for (int i = 0; i < MAX_BINDS; ++i)
+            if (configKeyFpvToggle[i] == 0x0021) configKeyFpvToggle[i] = 0x0041;
+    }
 }
 
 // Writes the config file to 'filename'

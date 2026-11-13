@@ -1470,6 +1470,15 @@ static void geo_process_object(struct Object *node) {
         node->header.gfx.cameraToObject[0] = gMatStack[gMatStackIndex][3][0];
         node->header.gfx.cameraToObject[1] = gMatStack[gMatStackIndex][3][1];
         node->header.gfx.cameraToObject[2] = gMatStack[gMatStackIndex][3][2];
+#ifdef FPV_DRONE
+        // the game's sounds are positioned from cameraToObject: from the pilot while libfpv hears
+        // the drone from him in a drone camera
+        {
+            Vec3f world;
+            get_pos_from_transform_mtx(world, gMatStack[gMatStackIndex], *gCurGraphNodeCamera->matrixPtr);
+            fpv_sm64_ear_position(world, node->header.gfx.cameraToObject);
+        }
+#endif
         if (billboard) {
             sInterpCurAnchor = interp_new_anchor(gMatStackInterpolated[gMatStackIndex], gMatStack[gMatStackIndex]);
         }

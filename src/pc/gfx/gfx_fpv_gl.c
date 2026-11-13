@@ -26,6 +26,14 @@
 
 #include "gfx_fpv_gl.h"
 
+// libfpv's video feed renderer for GL 2 contexts (docs/renderers): the analog noise, digital
+// breakup and the camera's resolution and aspect the player turns on in F8 > Camera
+#if defined(TARGET_WEB) || defined(USE_GLES)
+# define FPV_VIDEO_GL2_GLES
+#endif
+#define FPV_VIDEO_GL2_IMPLEMENTATION
+#include "fpv_video_gl2.h"
+
 #ifdef TARGET_WEB
 # define GLSL_HEADER "#version 100\nprecision highp float;\n" // WebGL 2 always has highp
 #elif defined(USE_GLES)
@@ -210,13 +218,8 @@ static void end_attribs(void) {
     }
 }
 
-void gfx_fpv_gl_postprocess(int width, int height, float k1, float k2, float zoom, float noise,
-                            float breakup, float analog, float lost, float time) {
-    if (width <= 0 || height <= 0) return;
-    struct SavedState st;
-    save_state(&st);
-    init();
-
+// the back buffer (the 3D scene so far) into sSceneTex
+static void capture_scene(int width, int height) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, sSceneTex);
     if (width != sSceneW || height != sSceneH) {
@@ -229,6 +232,15 @@ void gfx_fpv_gl_postprocess(int width, int height, float k1, float k2, float zoo
         sSceneH = height;
     }
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+}
+
+void gfx_fpv_gl_postprocess(int width, int height, float k1, float k2, float zoom, float noise,
+                            float breakup, float analog, float lost, float time) {
+    if (width <= 0 || height <= 0) return;
+    struct SavedState st;
+    save_state(&st);
+    init();
+    capture_scene(width, height);
 
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
@@ -256,6 +268,30 @@ void gfx_fpv_gl_postprocess(int width, int height, float k1, float k2, float zoo
     end_attribs();
 
     restore_state(&st);
+}
+
+static void video_osd(void *user, const fpv_draw_data *data, int width, int height) {
+    (void) user;
+    gfx_fpv_gl_draw(data, width, height);
+}
+
+bool gfx_fpv_gl_video(const fpv_frame *frame, int width, int height) {
+    static fpv_video_gl2 video;
+    static int state; // 0 not tried, 1 ready, -1 failed
+    if (width <= 0 || height <= 0) return false;
+    struct SavedState st;
+    save_state(&st);
+    init();
+    if (state == 0) {
+        state = fpv_video_gl2_init(&video) ? 1 : -1;
+        if (state < 0) fprintf(stderr, "fpv: the video feed renderer failed, drawing the lens only\n");
+    }
+    if (state > 0) {
+        capture_scene(width, height);
+        fpv_video_gl2_draw(&video, frame, sSceneTex, width, height, width, height, video_osd, NULL);
+    }
+    restore_state(&st);
+    return state > 0;
 }
 
 static GLuint font_texture(uint64_t id) {

@@ -19,10 +19,10 @@
 #include "thread6.h"
 #include "pc/fpv/fpv_sm64.h"
 
-// Mario stays awake while piloting the FPV drone.
+// Mario stays awake while piloting the FPV drone (not in the pilot view, where he is the player's).
 static s32 fpv_pilot_awake(void) {
 #ifdef FPV_DRONE
-    return fpv_sm64_is_active();
+    return fpv_sm64_piloting();
 #else
     return FALSE;
 #endif
@@ -207,9 +207,20 @@ s32 act_fpv_piloting(struct MarioState *m) {
         return 1;
     }
 
-    set_mario_animation(m, MARIO_ANIM_IDLE_WITH_LIGHT_OBJ);
 #ifdef FPV_DRONE
-    fpv_sm64_pilot_pose(m);
+    if (fpv_sm64_pilot_posed()) {
+        set_mario_animation(m, MARIO_ANIM_IDLE_WITH_LIGHT_OBJ);
+        fpv_sm64_pilot_pose(m);
+    } else {
+        // the radio is put down (or the pose is off): his own idle, looking around
+        static const s16 idleAnims[3] = { MARIO_ANIM_IDLE_HEAD_LEFT, MARIO_ANIM_IDLE_HEAD_RIGHT,
+                                          MARIO_ANIM_IDLE_HEAD_CENTER };
+        if (m->actionState > 2) m->actionState = 0;
+        set_mario_animation(m, idleAnims[m->actionState]);
+        if (is_anim_at_end(m)) m->actionState = (m->actionState + 1) % 3;
+    }
+#else
+    set_mario_animation(m, MARIO_ANIM_IDLE_WITH_LIGHT_OBJ);
 #endif
     stationary_ground_step(m);
     return 0;

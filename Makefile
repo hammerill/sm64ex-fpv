@@ -635,8 +635,8 @@ endif
 
 # Check for FPV drone option
 ifeq ($(FPV_DRONE),1)
-  CC_CHECK += -DFPV_DRONE -I$(LIBFPV_DIR)/include
-  CFLAGS += -DFPV_DRONE -I$(LIBFPV_DIR)/include
+  CC_CHECK += -DFPV_DRONE -I$(LIBFPV_DIR)/include -I$(LIBFPV_DIR)/docs/renderers
+  CFLAGS += -DFPV_DRONE -I$(LIBFPV_DIR)/include -I$(LIBFPV_DIR)/docs/renderers
   ifeq ($(FPV_KAMIKAZE),1)
     CC_CHECK += -DLIBFPV_KAMIKAZE=1
     CFLAGS += -DLIBFPV_KAMIKAZE=1
@@ -650,6 +650,17 @@ ifeq ($(FPV_DRONE),1)
     CC_CHECK += -DFPV_BF_CONFIG='"$(FPV_BF_CONFIG_PATH)"'
     CFLAGS += -DFPV_BF_CONFIG='"$(FPV_BF_CONFIG_PATH)"'
   endif
+  # The build named in libfpv's F8 > About tab: the commit, whether the tree was dirty and the
+  # branch, read on every make run. The header is only rewritten when that changes, so a new
+  # commit recompiles fpv_sm64.c without a clean build.
+  FPV_GIT_COMMIT := $(shell git rev-parse --short=12 HEAD 2>/dev/null)
+  FPV_GIT_DIRTY := $(shell git status --porcelain --untracked-files=no 2>/dev/null | head -c 1)
+  FPV_GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
+  FPV_COMMA := ,
+  FPV_HOST_BUILD := $(if $(FPV_GIT_COMMIT),$(FPV_GIT_COMMIT)$(if $(FPV_GIT_DIRTY),$(FPV_COMMA) dirty)$(if $(FPV_GIT_BRANCH), ($(FPV_GIT_BRANCH))),unknown)
+  FPV_BUILD_INFO := $(BUILD_DIR)/fpv_build_info.h
+  FPV_BUILD_INFO_TEXT := \#define FPV_HOST_BUILD "$(FPV_HOST_BUILD)"
+  $(shell mkdir -p $(BUILD_DIR); echo '$(FPV_BUILD_INFO_TEXT)' | cmp -s - $(FPV_BUILD_INFO) || echo '$(FPV_BUILD_INFO_TEXT)' > $(FPV_BUILD_INFO))
 endif
 
 # Check for texture fix option
@@ -870,6 +881,9 @@ $(BUILD_DIR)/lib/rsp.o: $(BUILD_DIR)/rsp/rspboot.bin $(BUILD_DIR)/rsp/fast3d.bin
 
 #Required so the compiler doesn't complain about this not existing.
 $(BUILD_DIR)/src/game/camera.o: $(BUILD_DIR)/include/text_strings.h
+ifeq ($(FPV_DRONE),1)
+$(BUILD_DIR)/src/pc/fpv/fpv_sm64.o: $(FPV_BUILD_INFO)
+endif
 
 $(BUILD_DIR)/include/text_strings.h: include/text_strings.h.in
 	$(TEXTCONV) charmap.txt $< $@

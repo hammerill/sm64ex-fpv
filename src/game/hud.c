@@ -477,9 +477,9 @@ void render_hud(void) {
 #endif
 
 #ifdef FPV_DRONE
-        // the Betaflight OSD owns the corners in the FPV view; keep coins, health and timer
+        // the Betaflight OSD owns the FPV view; keep health and timer
         if (fpv_sm64_osd_visible()) {
-            hudDisplayFlags &= ~(HUD_DISPLAY_FLAG_LIVES | HUD_DISPLAY_FLAG_STAR_COUNT);
+            hudDisplayFlags &= ~(HUD_DISPLAY_FLAG_LIVES | HUD_DISPLAY_FLAG_STAR_COUNT | HUD_DISPLAY_FLAG_COIN_COUNT);
         }
 #endif
 

@@ -6,6 +6,14 @@ arming and crashes behave like a real 5" quad. Mario stays where he is as the
 pilot: the line-of-sight camera and the analog video link are measured from him,
 so the picture gets noisy when you fly far away or behind walls.
 
+The FPV view looks like goggles: libfpv's video feed (F8 > Camera > "Video
+feed", both on by default) draws the analog link's snow, sparkles, torn and
+rolling lines and colour loss, or a digital link's breakup, and the camera's
+resolution and 4:3 aspect with black bars, the analog OSD inside the noisy
+signal. Turned off, the view is the fisheye alone. The game's coin, lives and
+star counters are hidden in the FPV view (the OSD owns it); health and the
+timer stay.
+
 The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
 
 ## What the drone does
@@ -13,6 +21,18 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
 - **Collision.** It collides with the whole level, plus moving platforms,
   doors, Whomps and anything else with a collision model. Hitting lava or water
   destroys the propellers.
+- **Damage.** Whatever would hurt Mario hurts the props: flames burn all four
+  (about half a prop a second), the game's explosions (Bob-ombs, Bowser's
+  mines) break all four within 3 m, and enemies, shots, Amps, Bubba and the
+  clams break the prop nearest to them. F8 > Drone > "Props and motors take
+  damage" turns all of it off.
+- **Wind.** Every level has a steady breeze of its own (up to 6 m/s on Rainbow
+  Ride, 5 m/s in Snowman's Land and on Tall, Tall Mountain), never dead calm;
+  libfpv adds the gusts, the stronger wind higher up and the shelter behind
+  walls. Interiors (the castle, Big Boo's Haunt, Hazy Maze Cave, the slides...)
+  are calm. The Fwooshes and Snowman's Land's snowman blow the drone away as
+  they blow Mario away, and explosions shove it. F8 > Fly > Wind turns it off
+  or scales it.
 - **Collecting.** Flying through coins (yellow, red and blue), stars, keys and
   1-ups collects them. A star ends the flight and Mario does his star dance.
 - **Enemies.** Goombas, Koopas, Bullies, Mr. Blizzards, Bob-ombs and breakable
@@ -23,15 +43,25 @@ The world is at real scale (100 units per metre, so Mario is about 1.6 m tall).
   their distance to Mario (coin formations, Pokeys, Whomps, Fwoosh clouds...).
   So, as gtaiv-fpv does with Niko, once the drone is 20 m from Mario his
   object stands in at the drone while the other objects update, until it is
-  back within 10 m. The level comes alive around the drone, and enemies there
+  back within 10 m (F8 > Fly > Pilot turns the stand-in off and sets both
+  distances). The level comes alive around the drone, and enemies there
   go for it. Mario himself stays where he is: enemies can't hurt him at the
   drone, nobody starts a conversation with the stand-in, and his own dust,
   splashes and stars stay with him.
 - **Move Mario here.** Y recalls the drone and puts Mario on the ground under
   it, facing where it faced. Over lava, a death plane, deadly quicksand or the
   void it buzzes and the flight goes on.
+- **Pilot view.** F gives Mario back to you: the game's camera, HUD and
+  controls, while the drone stays in the world, armed or not, flown by the
+  radio (it keeps flying if it was in the air, or falls if you let go of the
+  sticks). Mario's controls come back once F is released. F7 goes back to the
+  drone in the view you had. Meanwhile the drone still collects, attacks and
+  gets damaged, the line-of-sight camera, the video and RC links and the ear
+  follow Mario wherever he walks, and R respawns the drone in front of him.
+  Move Mario Here (Y) works from the pilot view too.
 - **Recall.** The drone is recalled when Mario is hurt badly, dies, starts a
-  cutscene, or the level or area changes.
+  cutscene (not in the pilot view, where he goes through doors and reads signs),
+  or the level or area changes.
 - **GPS.** Mario is the GPS home point, so the OSD's home arrow and home
   distance (enable them in the Configurator's OSD tab) always lead back to him.
 
@@ -42,8 +72,8 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
 
 - **Installing.** The bomb is not installed by default: the drone flies like
   in any other build until it is ticked in F8 > Kamikaze > "Bomb installed". It
-  stays on every new or repaired drone until the game is closed (it is not
-  saved).
+  is a choice per quad (preset), saved by libfpv, and every new or repaired
+  drone of that quad carries it.
 - **Arming.** The motors only arm with the bomb arm switch (AUX7) off. Take
   off, flip it, and the warhead is live (OSD `BOMB_ARMED`; with an arming delay
   set in F8 > Kamikaze, `ARMING 3` first). K toggles it on the keyboard, X (West)
@@ -62,7 +92,7 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
   close). Mario is hurt if he stands in the explosion itself.
 - **After the explosion.** libfpv's F8 > Kamikaze tab picks the ending (saved
   by libfpv; every choice is supported). First a view: **Signal lost**
-  (default) keeps the goggles on screen, static with libfpv's `SIGNAL LOST`
+  (default) keeps the goggles on screen, static with a blank OSD
   and none of the game's HUD over it, like a real lost feed; **Cutscene** shows
   the blast from the pilot's side, short of walls. It lasts the chosen time
   (3 s by default, 0 skips it), counted in game frames, so it pauses with the
@@ -79,15 +109,21 @@ With libfpv built with `-DLIBFPV_KAMIKAZE=ON` and the game with `FPV_KAMIKAZE=1`
 
 | Action | Keyboard | Gamepad |
 |---|---|---|
-| Deploy / recall the drone | F | Back / Select |
-| Repair and respawn at the launch point | R | D-pad up |
+| Launch / recall the drone, back to it after F | F7 | Back / Select |
+| Back to Mario, the drone left flying (pilot view) | F | D-pad left |
+| Repair and respawn (in front of Mario after F) | R | D-pad up |
 | Camera: FPV / chase / line of sight | V | D-pad right |
 | Recall the drone and move Mario under it | Y | D-pad down |
 | libfpv overlay (radio setup, presets, rates, camera, Betaflight CLI) | F8 | |
 | Pause | Space (Start) | Start |
 
-All four drone actions can be rebound in Options > Controls ("Drone
-Toggle", "Drone Reset", "Drone Camera", "Move Mario Here").
+All five drone actions can be rebound in Options > Controls ("Drone
+Launch", "Pilot View", "Drone Reset", "Drone Camera", "Move Mario Here"). F7
+and F are the keys of every libfpv game. A config saved before the pilot view
+had Drone Launch (then Drone Toggle) on F; it moves to F7 on the first start.
+They are also game controls for the radio: F8 > Radio > "Set up game
+controls" puts them on switches or buttons, and there the pilot view control
+also goes back to the drone, so both hands stay on the sticks.
 
 To fly with the keyboard, Enter arms, W/S sets the throttle, A/D yaws and the
 arrow keys pitch and roll (self-levelling). T toggles turtle mode.
@@ -102,14 +138,22 @@ switch (AUX6). With OSD disable on, the FPV view is clean: the Betaflight OSD
 and the game's HUD and text are hidden. The pause menu and the F8 overlay
 still show. Betaflight Configurator can connect to `ws://localhost:5761`.
 
-F8 > Fly also has buttons to deploy or recall the drone, respawn it, switch
-the camera and move Mario under it.
+F8 > Fly also has buttons to launch or recall the drone, go back to Mario,
+respawn it, switch the camera and move Mario under it.
 
-While the drone is up, Mario holds a radio whose sticks follow yours. He watches
-the drone, turns around when it flies behind him, and leans into the turns.
-He ignores all input except Start. Settings,
-EEPROMs and logs are kept in the game's user folder
-(`%APPDATA%\sm64ex\libfpv-data`, `%APPDATA%\sm64ex\fpv.log`).
+While you fly from the drone's views, Mario ignores all input except Start.
+While the radio is in use (armed, or a stick or switch moved in the last 3 s)
+he holds a radio whose sticks follow yours, watches the drone, turns around
+when it flies behind him and leans into the turns; otherwise he idles. F8 >
+Fly > Pilot turns the pose off.
+
+Radio mappings, EEPROMs and settings are kept in libfpv's folder shared by
+every libfpv game (`%APPDATA%\libfpv`, `~/Library/Application Support/libfpv`,
+`~/.config/libfpv`, or `LIBFPV_DATA_DIR`), so they follow you from game to
+game. The first start copies an older `libfpv-data` from the game's user
+folder there, unless the shared folder already exists. The log stays in the
+game's user folder (`%APPDATA%\sm64ex\fpv.log`). F8 > About names the build
+(commit, dirty, branch) next to libfpv's, for bug reports.
 
 ## Framerate
 
@@ -148,8 +192,16 @@ make WINDOWS_BUILD=1 CROSS=x86_64-w64-mingw32- TARGET_BITS=64 FPV_DRONE=1 \
 ```
 
 `libfpv.dll` (or `libfpv.so.0`, or `libfpv.0.dylib`) is copied next to the executable, and the
-game needs it at run time. Only the OpenGL renderer draws the lens effect, the
-OSD and the overlay (other renderers tell libfpv there is no lens pass).
+game needs it at run time. Only the OpenGL renderer draws the lens, the video
+feed, the OSD and the overlay (other renderers tell libfpv there is no lens
+pass and no video feed). The video feed comes from libfpv's
+`docs/renderers/fpv_video_gl2.h` (OpenGL 2.1 / GLES 2), on the include path
+with `FPV_DRONE=1`.
+
+The libfpv build must match `FPV_KAMIKAZE`: a kamikaze libfpv has two more
+channels in `fpv_frame`, so a game built without `FPV_KAMIKAZE=1` reads every
+field after them (the video feed, the wind, the cargo) from the wrong place.
+Check `LIBFPV_KAMIKAZE` in the libfpv build folder's `CMakeCache.txt`.
 
 To start every new player from your own Betaflight setup, pass a `diff all`
 file as `FPV_BF_CONFIG=<file>`. It is imported on the first run and the
@@ -183,21 +235,24 @@ Betaflight CLI is in F8 > Import & CLI.
 
 ## Self test
 
-`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,kamikaze[,cutscene][,then=respawn|recall|nothing][,dur=<s>][,act=reset|recall|here]][,bowser[,zombie]]` boots through the debug
+`SM64_FPV_TEST=<level>[,chase|los][,overlay][,dive][,clean][,pilot[=<degrees>]][,here][,far][,fview][,wind][,kamikaze[,cutscene][,then=respawn|recall|nothing][,dur=<s>][,act=reset|recall|here]][,bowser[,zombie]]` boots through the debug
 level select into a level (9 = Bob-omb Battlefield, 12 = Jolly Roger Bay). It
 then deploys the drone, flies a scripted autopilot through a coin line and a
 Goomba, recalls the drone and deploys it again. It writes telemetry to `fpv.log`
 and screenshots to `fpv_shot*.bmp` in the user folder. `clean` turns the OSD
 disable switch on after 6 s. `pilot` films Mario during the flight instead of
 a drone camera, from in front of him or `<degrees>` around him.
-`here` ends the first flight with Move Mario Here instead of a recall. `far`
+`here` ends the first flight with Move Mario Here instead of a recall.
+`fview` presses Pilot View 3 s into the first flight and Drone Launch (back to
+the drone) at 6 s, logging Mario's action and the view. Test flights are in
+still air unless `wind` gives them the level's breeze. `far`
 moves the first drone 30 m out after 2 s and logs the stand-in.
 `kamikaze` (kamikaze builds) installs the bomb, turns the bomb arm switch on after take-off and
 strikes the Goomba. The ending is set for the run only (the player's saved
 choice is untouched): signal lost for 3 s then recall (Mario takes over, and
 the test redeploys), or with `cutscene` (or `arcade`) the cutscene then a
 respawn. `then=`, `dur=` (seconds, 0 = no view) override the rest; `act=`
-presses Drone Reset, Drone Toggle or Move Mario Here 0.5 s into the view to
+presses Drone Reset, Drone Launch or Move Mario Here 0.5 s into the view to
 check that it cancels the timer. It saves `fpv_shot_boom0.bmp`, `fpv_shot_boom1.bmp`
 and `fpv_shot_after.bmp`.
 `bowser` (kamikaze builds, in a Bowser arena: 30, 33 or 34) skips the drone and
@@ -216,8 +271,10 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
 - **Skybox.** In a drone camera, `skybox.c` wraps the skybox tiles around the
   camera as a sphere.
 - **Lens, OSD and overlay.** `area.c` puts a marker in the display list after
-  the 3D scene. `gfx_pc.c` applies the fisheye/analog noise post-process there,
-  before the HUD, and draws the OSD and overlay at the end of the frame.
+  the 3D scene. `gfx_pc.c` draws the goggles there, before the HUD: libfpv's
+  video feed (`gfx_fpv_gl_video`, the OSD included), or with its effects off
+  the fisheye alone, with the OSD at the end of the frame. The overlay is
+  drawn at the end of the frame.
 - **Collision.** `surface_load.c` reports the static surfaces of each area, and
   every object collision model while it is tangible.
 - **Culling.** `behavior_script.c`, `surface_load.c` and the room switch in
@@ -231,7 +288,14 @@ Changes to existing files are guarded by `#ifdef FPV_DRONE`:
 - **Input.** Four new binds are added to the configuration, the options menu
   and the keyboard/SDL2 controllers. Window events are forwarded to libfpv in
   `gfx_sdl2.c`.
-- **Audio.** `pc_main.c` mixes in the synthesized motor sound.
+- **Audio.** `pc_main.c` mixes in the synthesized motor sound. While libfpv
+  hears the drone from the pilot in the FPV and chase views, `geo_process_object`
+  in `rendering_graph_node.c` positions every object's sounds from Mario's head
+  facing the drone instead of the drone camera.
+- **Pilot.** `act_fpv_piloting` in `mario_actions_stationary.c` plays the pose
+  only while the radio is in use, and Mario leaves it in the pilot view.
+- **Wind.** `cur_obj_spawn_strong_wind_particles` reports the Fwooshes' and the
+  snowman's gusts.
 - **Kamikaze.** Everything else is in `fpv_sm64.c` under `LIBFPV_KAMIKAZE`. It
   tells libfpv it supports every ending (`fpv_kamikaze_set_ending_support`)
   and reads the player's choice at each detonation.

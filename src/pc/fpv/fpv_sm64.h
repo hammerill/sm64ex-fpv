@@ -24,6 +24,11 @@ void fpv_sm64_terrain_loaded(void);
 void fpv_sm64_object_collision_loaded(struct Object *obj, Mat4 transform);
 
 s32 fpv_sm64_is_active(void);
+// the drone is flown from its views (not the pilot view, F, where Mario is the player's)
+s32 fpv_sm64_piloting(void);
+// ACT_FPV_PILOTING: the piloting pose (radio in hand, watching the drone) while the radio is in
+// use and the player has the pose on; otherwise Mario idles as usual
+s32 fpv_sm64_pilot_posed(void);
 // ACT_FPV_PILOTING, once per game frame: Mario watches the drone and leans with the sticks
 void fpv_sm64_pilot_pose(struct MarioState *m);
 // mario_misc: the radio drawn in Mario's hands while piloting, or NULL
@@ -61,6 +66,12 @@ void fpv_sm64_gfx_frame_done(int width, int height);
 
 // pc_main: adds motor sound to the game's 32 kHz stereo output
 void fpv_sm64_mix_audio(s16 *samples, u32 frames);
+
+// rendering_graph_node: the object at `world` as heard by the game's sounds (camera space), when
+// they are heard from the pilot instead of the camera
+s32 fpv_sm64_ear_position(Vec3f world, Vec3f out);
+// cur_obj_spawn_strong_wind_particles: a Fwoosh or the snowman blows this game frame
+void fpv_sm64_wind_gust(struct Object *obj, f32 relX, f32 relY, f32 relZ);
 
 // window events (keys forwarded as libfpv key codes, see libfpv.h fpv_key)
 void fpv_sm64_key(int fpvKey, int down);

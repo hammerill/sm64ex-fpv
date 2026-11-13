@@ -38,6 +38,9 @@
 #include "platform_displacement.h"
 #include "rendering_graph_node.h"
 #include "save_file.h"
+#ifdef FPV_DRONE
+#include "pc/fpv/fpv_sm64.h"
+#endif
 #include "seq_ids.h"
 #include "sm64.h"
 #include "spawn_object.h"

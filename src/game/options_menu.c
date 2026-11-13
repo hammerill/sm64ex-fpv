@@ -131,6 +131,7 @@ static const u8 bindStr[][32] = {
     { TEXT_BIND_FPV_RST },
     { TEXT_BIND_FPV_CAM },
     { TEXT_BIND_FPV_HERE },
+    { TEXT_BIND_FPV_PILOT },
 };
 
 static const u8 *filterChoices[] = {
@@ -259,6 +260,7 @@ static struct Option optsControls[] = {
     DEF_OPT_BIND( bindStr[19], configKeyFpvReset ),
     DEF_OPT_BIND( bindStr[20], configKeyFpvCamera ),
     DEF_OPT_BIND( bindStr[21], configKeyFpvHere ),
+    DEF_OPT_BIND( bindStr[22], configKeyFpvPilot ),
     // max deadzone is 31000; this is less than the max range of ~32768, but this
     // way, the player can't accidentally lock themselves out of using the stick
     DEF_OPT_SCROLL( bindStr[16], &configStickDeadzone, 0, 100, 1 ),
